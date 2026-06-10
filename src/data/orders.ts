@@ -1,4 +1,4 @@
-import type { Order, OrderType } from '../types';
+import type { Order, OrderType, OrderQuality } from '../types';
 import { getRestaurants, getBuildings, getNode } from './mapData';
 
 const RESTAURANT_NAMES = [
@@ -66,21 +66,50 @@ export const generateOrder = (difficulty: number = 1, reputation: number = 50): 
   }
   
   const baseReward = 15 + Math.floor(Math.random() * 20) + Math.floor(repFactor * 15);
-  const reward = Math.max(5, Math.floor(baseReward * rewardMultiplier * (1 + difficulty * 0.1) * (0.8 + repFactor * 0.4)));
+  let reward = Math.max(5, Math.floor(baseReward * rewardMultiplier * (1 + difficulty * 0.1) * (0.8 + repFactor * 0.4)));
   
   const distance = Math.sqrt(
     Math.pow(restaurant.x - building.x, 2) + Math.pow(restaurant.y - building.y, 2)
   );
   const baseTime = Math.floor(distance / 30) + 30;
-  const timeLimit = Math.floor(baseTime * timeMultiplier / (1 + difficulty * 0.05));
+  let timeLimit = Math.floor(baseTime * timeMultiplier / (1 + difficulty * 0.05));
   
   const customerIndex = Math.floor(Math.random() * CUSTOMER_NAMES.length);
   const hasNote = Math.random() > 0.5;
   const noteIndex = Math.floor(Math.random() * CUSTOMER_NOTES.length);
   
+  let quality: OrderQuality = 'normal';
+  const qualityRoll = Math.random();
+  if (reputation >= 75) {
+    if (qualityRoll < 0.5) quality = 'premium';
+    else if (qualityRoll < 0.9) quality = 'normal';
+    else quality = 'poor';
+  } else if (reputation >= 50) {
+    if (qualityRoll < 0.2) quality = 'premium';
+    else if (qualityRoll < 0.85) quality = 'normal';
+    else quality = 'poor';
+  } else if (reputation >= 25) {
+    if (qualityRoll < 0.05) quality = 'premium';
+    else if (qualityRoll < 0.6) quality = 'normal';
+    else quality = 'poor';
+  } else {
+    if (qualityRoll < 0.02) quality = 'premium';
+    else if (qualityRoll < 0.25) quality = 'normal';
+    else quality = 'poor';
+  }
+  
+  if (quality === 'premium') {
+    reward = Math.floor(reward * 1.3);
+    timeLimit = Math.floor(timeLimit * 1.2);
+  } else if (quality === 'poor') {
+    reward = Math.floor(reward * 0.7);
+    timeLimit = Math.floor(timeLimit * 0.85);
+  }
+  
   return {
     id: generateId(),
     type,
+    quality,
     restaurant: restaurant.name || restaurant.id,
     customer: CUSTOMER_NAMES[customerIndex],
     pickupLocation: { x: restaurant.x, y: restaurant.y },
@@ -135,6 +164,33 @@ export const getOrderTypeBgColor = (type: OrderType): string => {
     special: 'bg-purple-500/20 border-purple-500/30',
   };
   return colors[type];
+};
+
+export const getOrderQualityLabel = (quality: OrderQuality): string => {
+  const labels: Record<OrderQuality, string> = {
+    premium: '⭐ 优质单',
+    normal: '普通单',
+    poor: '💔 差单',
+  };
+  return labels[quality];
+};
+
+export const getOrderQualityColor = (quality: OrderQuality): string => {
+  const colors: Record<OrderQuality, string> = {
+    premium: 'text-yellow-400 bg-yellow-500/20',
+    normal: 'text-gray-400 bg-gray-500/20',
+    poor: 'text-red-400 bg-red-500/20',
+  };
+  return colors[quality];
+};
+
+export const getOrderQualityBorder = (quality: OrderQuality): string => {
+  const borders: Record<OrderQuality, string> = {
+    premium: 'border-yellow-500/50 shadow-[0_0_10px_rgba(250,204,21,0.2)]',
+    normal: 'border-night-600/50',
+    poor: 'border-red-500/30',
+  };
+  return borders[quality];
 };
 
 export { generateId };

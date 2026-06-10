@@ -33,7 +33,7 @@ const HandIcon = () => (
 type TabType = 'equipment' | 'skills';
 
 const BackpackPanel = () => {
-  const { player, buyEquipment, upgradeSkill } = useGameStore();
+  const { player, buyEquipment, upgradeSkill, vehicle, stamina } = useGameStore();
   const [activeTab, setActiveTab] = useState<TabType>('equipment');
 
   const equipmentByType = player.equipment.reduce((acc, eq) => {
@@ -165,6 +165,64 @@ const BackpackPanel = () => {
     </div>
   );
 
+  const getActiveEffects = () => {
+    const effects: { name: string; effect: number; unit: string; current: string }[] = [];
+    
+    const batteryEquip = player.equipment.find(e => e.type === 'battery' && e.owned);
+    if (batteryEquip) {
+      effects.push({
+        name: '电池容量',
+        effect: batteryEquip.effect,
+        unit: '%',
+        current: `${Math.round(vehicle.battery)}/${vehicle.maxBattery}%`
+      });
+    }
+    
+    const glovesEquip = player.equipment.find(e => e.type === 'gloves' && e.owned);
+    if (glovesEquip) {
+      effects.push({
+        name: '耐久消耗减少',
+        effect: glovesEquip.effect,
+        unit: '%',
+        current: `${Math.round(vehicle.durability)}%耐久`
+      });
+    }
+    
+    const insulationEquip = player.equipment.find(e => e.type === 'insulation' && e.owned);
+    if (insulationEquip) {
+      effects.push({
+        name: '温度保持',
+        effect: insulationEquip.effect,
+        unit: '%',
+        current: '食物冷却减慢'
+      });
+    }
+    
+    const lightEquip = player.equipment.find(e => e.type === 'light' && e.owned);
+    if (lightEquip) {
+      effects.push({
+        name: '夜间速度',
+        effect: lightEquip.effect,
+        unit: '%',
+        current: `${vehicle.speed} km/h`
+      });
+    }
+    
+    const helmetEquip = player.equipment.find(e => e.type === 'helmet' && e.owned);
+    if (helmetEquip) {
+      effects.push({
+        name: '体力消耗减少',
+        effect: helmetEquip.effect,
+        unit: '%',
+        current: `${Math.round(stamina)}/${player.maxStamina}体力`
+      });
+    }
+    
+    return effects;
+  };
+
+  const activeEffects = getActiveEffects();
+
   const renderEquipment = () => (
     <div className="space-y-4">
       <div className="glass-panel p-3">
@@ -173,6 +231,26 @@ const BackpackPanel = () => {
           <span className="text-lg font-bold text-neon-yellow">¥{player.money}</span>
         </div>
       </div>
+
+      {activeEffects.length > 0 && (
+        <div className="glass-panel p-3">
+          <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-neon-green" />
+            当前生效装备
+          </h4>
+          <div className="space-y-2">
+            {activeEffects.map((effect, idx) => (
+              <div key={idx} className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">{effect.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-green-400">+{effect.effect}{effect.unit}</span>
+                  <span className="text-gray-500">| {effect.current}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {Object.entries(equipmentByType).map(([type, items]) => (
         <div key={type}>
@@ -202,6 +280,15 @@ const BackpackPanel = () => {
                   )}
                 </div>
                 <p className="text-xs text-gray-500 mb-2">{item.description}</p>
+                {item.owned && (
+                  <p className="text-xs text-green-400/70">
+                    {type === 'battery' && `当前电量上限: ${vehicle.maxBattery}%`}
+                    {type === 'gloves' && `当前耐久消耗: -${item.effect}%`}
+                    {type === 'insulation' && `温度衰减: -${item.effect}%`}
+                    {type === 'light' && `夜间速度: +${item.effect}%`}
+                    {type === 'helmet' && `体力消耗: -${item.effect}%`}
+                  </p>
+                )}
                 {!item.owned && (
                   <button
                     onClick={() => buyEquipment(item.id)}

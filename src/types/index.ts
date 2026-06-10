@@ -37,6 +37,7 @@ export interface TrafficLight {
   nodeId: string;
   state: TrafficLightState;
   timer: number;
+  maxTimer: number;
   redDuration: number;
   yellowDuration: number;
   greenDuration: number;
@@ -54,9 +55,12 @@ export interface RoadEvent {
   createdAt: number;
 }
 
+export type OrderQuality = 'premium' | 'normal' | 'poor';
+
 export interface Order {
   id: string;
   type: OrderType;
+  quality: OrderQuality;
   restaurant: string;
   customer: string;
   pickupLocation: Point;
@@ -103,6 +107,47 @@ export interface OrderAppeal {
   reputationRestored?: number;
 }
 
+export interface Insurance {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  coverage: number;
+  duration: number;
+  purchasedAt: number;
+  expiresAt: number;
+  active: boolean;
+}
+
+export interface MaintenanceService {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  effect: number;
+  purchasedAt: number;
+}
+
+export interface RepairRecord {
+  id: string;
+  nodeId: string;
+  shopName: string;
+  type: 'repair' | 'insurance' | 'maintenance';
+  cost: number;
+  amount: number;
+  description: string;
+  createdAt: number;
+}
+
+export interface RescueRecord {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  cost: number;
+  timeCost: number;
+  createdAt: number;
+}
+
 export interface Vehicle {
   type: string;
   name: string;
@@ -112,6 +157,10 @@ export interface Vehicle {
   maxBattery: number;
   speed: number;
   batteryDrain: number;
+  insurance: Insurance | null;
+  lastMaintenanceAt: number;
+  maintenanceBonus: number;
+  totalRepairCost: number;
 }
 
 export interface Skill {
@@ -198,6 +247,9 @@ export interface PlayerState {
   reputation: number;
   reports: OrderReport[];
   appeals: OrderAppeal[];
+  repairRecords: RepairRecord[];
+  rescueRecords: RescueRecord[];
+  totalRescueCost: number;
 }
 
 export interface GameState {
@@ -244,6 +296,13 @@ export interface GameState {
   
   sessionDeliveries: number;
   sessionDistance: number;
+  sessionRescueCost: number;
+  sessionRepairCost: number;
+  isBeingRescued: boolean;
+  rescueProgress: number;
+  rescueTargetNodeId: string | null;
+  rescueCost: number;
+  rescueTimeCost: number;
 }
 
 export interface GameStats {

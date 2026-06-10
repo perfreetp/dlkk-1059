@@ -1,6 +1,6 @@
 import { useGameStore } from '../../store/gameStore';
 import { MAP_NODES, MAP_WIDTH, MAP_HEIGHT, getNode } from '../../data/mapData';
-import { CloudRain, CloudLightning, Cloud, Zap, Coffee, Wrench, AlertTriangle, Mountain, Timer, AlertOctagon } from 'lucide-react';
+import { CloudRain, CloudLightning, Cloud, Zap, Coffee, Wrench, AlertTriangle, Mountain, Timer, AlertOctagon, Truck } from 'lucide-react';
 
 const MapPanel = () => {
   const {
@@ -17,8 +17,12 @@ const MapPanel = () => {
     roadEvents,
     isAtTrafficLight,
     currentTrafficLight,
+    waitingAtLight,
     runRedLight,
     waitAtLight,
+    isBeingRescued,
+    rescueProgress,
+    rescueTargetNodeId,
   } = useGameStore();
 
   const getWeatherIcon = () => {
@@ -167,7 +171,8 @@ const MapPanel = () => {
 
   const handleNodeClick = (nodeId: string) => {
     if (nodeId === currentNodeId) return;
-    if (isAtTrafficLight) return;
+    if (isAtTrafficLight || waitingAtLight) return;
+    if (isBeingRescued) return;
     setTargetNode(nodeId);
   };
 
@@ -216,7 +221,28 @@ const MapPanel = () => {
         </div>
       </div>
 
-      {roadEvents.length > 0 && (
+      {isBeingRescued && (
+        <div className="absolute top-16 left-3 right-3 z-10 px-3 py-2 glass-panel">
+          <div className="flex items-center gap-2 mb-1">
+            <Truck className="w-4 h-4 text-orange-400 animate-pulse" />
+            <span className="text-sm text-orange-400">救援中</span>
+            <span className="text-xs text-gray-400 ml-auto">
+              {Math.round(rescueProgress * 100)}%
+            </span>
+          </div>
+          <div className="h-1.5 bg-night-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-orange-500 rounded-full transition-all duration-300"
+              style={{ width: `${rescueProgress * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            正在拖往充电站...
+          </p>
+        </div>
+      )}
+
+      {!isBeingRescued && roadEvents.length > 0 && (
         <div className="absolute top-16 left-3 z-10 px-3 py-2 glass-panel max-w-[200px]">
           <div className="flex items-center gap-1 text-xs text-orange-400 mb-1">
             <AlertTriangle className="w-3 h-3" />
@@ -228,6 +254,17 @@ const MapPanel = () => {
             </div>
           ))}
         </div>
+      )}
+
+      {waitingAtLight && currentTrafficLight && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-4 py-2 glass-panel">
+          <div className="flex items-center gap-2">
+          <Timer className="w-4 h-4 text-yellow-400 animate-pulse" />
+          <span className="text-sm text-yellow-400">
+            等待绿灯... {Math.ceil(currentTrafficLight.timer)}秒
+          </span>
+        </div>
+      </div>
       )}
 
       <svg
@@ -426,7 +463,7 @@ const MapPanel = () => {
         </g>
       </svg>
 
-      {isAtTrafficLight && currentTrafficLight && (
+      {isAtTrafficLight && currentTrafficLight && !waitingAtLight && (
         <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center">
           <div className="glass-panel p-6 max-w-sm w-full mx-4 animate-pulse">
             <div className="text-center mb-4">
@@ -466,6 +503,29 @@ const MapPanel = () => {
             <p className="text-xs text-gray-500 text-center mt-4">
               闯灯可能：罚款¥50、声誉-5、车辆损伤
             </p>
+          </div>
+        </div>
+      )}
+
+      {waitingAtLight && currentTrafficLight && (
+        <div className="absolute inset-0 bg-black/40 z-20 flex items-center justify-center pointer-events-none">
+          <div className="glass-panel p-6 max-w-sm w-full mx-4">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center bg-yellow-500/20 border-2 border-yellow-500">
+                <Timer className="w-8 h-8 text-yellow-400 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-bold text-yellow-400 mb-1">等待绿灯中...</h3>
+              <div className="text-3xl font-mono text-white mb-2">
+                {Math.ceil(currentTrafficLight.timer)}
+              </div>
+              <p className="text-sm text-gray-400">秒后自动通行</p>
+              <div className="mt-4 h-2 bg-night-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-yellow-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.max(0, (1 - currentTrafficLight.timer / currentTrafficLight.maxTimer)) * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}

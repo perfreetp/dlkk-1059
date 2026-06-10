@@ -12,8 +12,12 @@ import type {
   OrderReport,
   OrderAppeal,
   ChapterRecord,
+  Insurance,
+  MaintenanceService,
+  RepairRecord,
+  RescueRecord,
 } from '../types';
-import { MAP_NODES, getNode, findShortestPath, getIntersectionsWithLights } from '../data/mapData';
+import { MAP_NODES, getNode, findShortestPath, getIntersectionsWithLights, getChargingStations, getRepairShops, calculateDistance } from '../data/mapData';
 import { generateOrder, generateInitialOrders, generateId } from '../data/orders';
 import { INITIAL_EQUIPMENT, INITIAL_SKILLS, getSkillUpgradeCost, getSkillTotalEffect } from '../data/equipment';
 import { getChapter, CHAPTERS } from '../data/chapters';
@@ -27,6 +31,10 @@ const initialVehicle: Vehicle = {
   maxBattery: 100,
   speed: 80,
   batteryDrain: 0.5,
+  insurance: null,
+  lastMaintenanceAt: 0,
+  maintenanceBonus: 0,
+  totalRepairCost: 0,
 };
 
 const initialPlayerState: PlayerState = {
@@ -51,6 +59,9 @@ const initialPlayerState: PlayerState = {
   reputation: 100,
   reports: [],
   appeals: [],
+  repairRecords: [],
+  rescueRecords: [],
+  totalRescueCost: 0,
 };
 
 const initialGameState: GameState = {
@@ -97,18 +108,34 @@ const initialGameState: GameState = {
 
   sessionDeliveries: 0,
   sessionDistance: 0,
+  sessionRescueCost: 0,
+  sessionRepairCost: 0,
+  isBeingRescued: false,
+  rescueProgress: 0,
+  rescueTargetNodeId: null,
+  rescueCost: 0,
+  rescueTimeCost: 0,
 };
 
 const createInitialTrafficLights = (): TrafficLight[] => {
   const intersectionNodes = getIntersectionsWithLights();
-  return intersectionNodes.map(node => ({
-    nodeId: node.id,
-    state: Math.random() > 0.5 ? 'green' : 'red',
-    timer: Math.random() * 10,
-    redDuration: 8 + Math.random() * 4,
-    yellowDuration: 2,
-    greenDuration: 10 + Math.random() * 5,
-  }));
+  return intersectionNodes.map(node => {
+    const initialState = Math.random() > 0.5 ? 'green' : 'red';
+    const initialTimer = Math.random() * 10;
+    const redDuration = 8 + Math.random() * 4;
+    const yellowDuration = 2;
+    const greenDuration = 10 + Math.random() * 5;
+    const maxTimer = initialState === 'red' ? redDuration : greenDuration;
+    return {
+      nodeId: node.id,
+      state: initialState,
+      timer: initialTimer,
+      maxTimer,
+      redDuration,
+      yellowDuration,
+      greenDuration,
+    };
+  });
 };
 
 const ROAD_EVENT_TEMPLATES = [
@@ -116,6 +143,16 @@ const ROAD_EVENT_TEMPLATES = [
   { type: 'traffic_jam' as const, description: '交通拥堵', speedPenalty: 0.4, staminaCost: 0.02, batteryCost: 0.02, duration: 45 },
   { type: 'construction' as const, description: '道路施工', speedPenalty: 0.35, staminaCost: 0.03, batteryCost: 0.04, duration: 60 },
   { type: 'accident' as const, description: '交通事故', speedPenalty: 0.5, staminaCost: 0.04, batteryCost: 0.02, duration: 25 },
+];
+
+const INSURANCE_OPTIONS: Omit<Insurance, 'purchasedAt' | 'expiresAt' | 'active' | 'id'>[] = [
+  { name: '基础保险', description: '抛锚救援费用减免50%', price: 100, coverage: 0.5, duration: 1800 },
+  { name: '全险', description: '抛锚救援全免费，维修费用减免30%', price: 300, coverage: 1.0, duration: 3600 },
+];
+
+const MAINTENANCE_OPTIONS: Omit<MaintenanceService, 'purchasedAt' | 'id'>[] = [
+  { name: '基础保养', description: '耐久消耗减少20%，持续10分钟', price: 50, effect: 0.2 },
+  { name: '全面保养', description: '耐久消耗减少40%，持续20分钟', price: 120, effect: 0.4 },
 ];
 
 function getWeatherSpeedModifier(weather: WeatherType): number {
@@ -127,6 +164,25 @@ function getWeatherSpeedModifier(weather: WeatherType): number {
   };
   return modifiers[weather];
 }
+
+const findNearestChargingStation = (fromNodeId: string) => {
+  const fromNode = getNode(fromNodeId);
+  if (!fromNode) return null;
+  
+  const stations = getChargingStations();
+  let nearest = stations[0];
+  let minDist = calculateDistance(fromNode, stations[0]);
+  
+  for (const station of stations) {
+    const dist = calculateDistance(fromNode, station);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = station;
+    }
+  }
+  
+  return nearest;
+};
 
 interface GameStore extends GameState {
   player: PlayerState;
@@ -155,11 +211,17 @@ interface GameStore extends GameState {
   runRedLight: () => void;
   waitAtLight: () => void;
 
+  callRescue: () => void;
+  acceptEmergencyMission: () => void;
+
   addMessage: (message: Omit<Message, 'id' | 'timestamp' | 'read'>) => void;
   markMessageRead: (messageId: string) => void;
 
   buyEquipment: (equipmentId: string) => void;
   upgradeSkill: (skillId: string) => void;
+
+  buyInsurance: (type: 'basic' | 'full') => void;
+  buyMaintenance: (type: 'basic' | 'full') => void;
 
   chargeVehicle: (amount: number) => void;
   repairVehicle: (amount: number) => void;
@@ -211,6 +273,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         battery: actualMaxBattery,
         maxDurability: 100,
         durability: 100,
+        insurance: null,
+        maintenanceBonus: 0,
+        lastMaintenanceAt: 0,
+        totalRepairCost: 0,
       },
       stamina: actualMaxStamina,
       isSettled: false,
@@ -227,6 +293,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       content: `欢迎来到${chapter.name}！目标收益：¥${chapter.targetEarnings}，注意安全！当前声誉：${player.reputation}`,
       type: 'system',
     });
+    
+    const equipNames = player.equipment.filter(e => e.owned && e.effect > 0).map(e => e.name).join('、');
+    if (equipNames) {
+      get().addMessage({
+        sender: '系统',
+        content: `装备已生效：${equipNames}`,
+        type: 'system',
+      });
+    }
   },
 
   pauseGame: () => set({ isPaused: true }),
@@ -237,7 +312,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const chapter = getChapter(state.currentChapterId || '');
     if (!chapter) return;
 
-    const finalScore = state.currentEarnings + state.tips;
+    const finalScore = state.currentEarnings + state.tips - state.sessionRescueCost - state.sessionRepairCost;
     const isWin = finalScore >= chapter.targetEarnings;
 
     let player = { ...state.player };
@@ -310,6 +385,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     player.totalTips += state.tips;
     player.totalPlayTime += playTime;
     player.totalDistance += state.sessionDistance;
+    player.totalRescueCost += state.sessionRescueCost;
     player.exp += successfulCount * 10 + (isWin ? 50 : 0);
 
     const expNeeded = player.level * 100;
@@ -339,21 +415,80 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const updatedLights = state.trafficLights.map(light => {
       let newTimer = light.timer - dt;
       let newState = light.state;
+      let newMaxTimer = light.maxTimer;
       
       if (newTimer <= 0) {
         if (light.state === 'green') {
           newState = 'yellow';
           newTimer = light.yellowDuration;
+          newMaxTimer = light.yellowDuration;
         } else if (light.state === 'yellow') {
           newState = 'red';
           newTimer = light.redDuration;
+          newMaxTimer = light.redDuration;
         } else {
           newState = 'green';
           newTimer = light.greenDuration;
+          newMaxTimer = light.greenDuration;
         }
       }
-      return { ...light, state: newState, timer: newTimer };
+      return { ...light, state: newState, timer: newTimer, maxTimer: newMaxTimer };
     });
+
+    if (state.isBeingRescued) {
+      const newProgress = state.rescueProgress + dt;
+      if (newProgress >= state.rescueTimeCost) {
+        const targetNode = getNode(state.rescueTargetNodeId || '');
+        if (targetNode) {
+          const rescueRecord: RescueRecord = {
+            id: generateId(),
+            fromNodeId: state.currentNodeId,
+            toNodeId: targetNode.id,
+            cost: state.rescueCost,
+            timeCost: state.rescueTimeCost,
+            createdAt: Date.now(),
+          };
+          
+          const newRescueRecords = [...state.player.rescueRecords, rescueRecord];
+          
+          set(state => ({
+            isBeingRescued: false,
+            rescueProgress: 0,
+            rescueTargetNodeId: null,
+            rescueCost: 0,
+            rescueTimeCost: 0,
+            currentNodeId: targetNode.id,
+            playerPosition: { x: targetNode.x, y: targetNode.y },
+            vehicle: {
+              ...state.vehicle,
+              battery: Math.min(state.vehicle.maxBattery, 30),
+            },
+            currentRoute: [],
+            targetNodeId: null,
+            sessionRescueCost: state.sessionRescueCost + state.rescueCost,
+            player: {
+              ...state.player,
+              rescueRecords: newRescueRecords,
+              totalRescueCost: state.player.totalRescueCost + state.rescueCost,
+            },
+          }));
+          get().savePlayer();
+          
+          get().addMessage({
+            sender: '救援中心',
+            content: `救援完成！已送至${targetNode.name}，电量补充至30%。花费：¥${state.rescueCost}`,
+            type: 'system',
+          });
+        }
+        return;
+      }
+      
+      set({ 
+        rescueProgress: newProgress,
+        trafficLights: updatedLights,
+      });
+      return;
+    }
 
     if (state.waitingAtLight && state.currentTrafficLight) {
       const updatedCurrentLight = updatedLights.find(l => l.nodeId === state.currentTrafficLight?.nodeId);
@@ -372,6 +507,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return;
       }
       set({ trafficLights: updatedLights, currentTrafficLight: updatedCurrentLight || null });
+      return;
+    }
+
+    if (state.isAtTrafficLight && state.currentTrafficLight) {
+      set({ trafficLights: updatedLights });
       return;
     }
 
@@ -420,15 +560,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let newCurrentTrafficLight: TrafficLight | null = null;
     let vehicleBrokeDown = false;
 
+    const glovesEquip = state.player.equipment.find(e => e.type === 'gloves' && e.owned);
+    const glovesMod = glovesEquip ? 1 - glovesEquip.effect / 100 : 1;
+    const insulationEquip = state.player.equipment.find(e => e.type === 'insulation' && e.owned);
+    const insulationMod = insulationEquip ? 1 - insulationEquip.effect / 100 : 1;
+    const lightEquip = state.player.equipment.find(e => e.type === 'light' && e.owned);
+    const lightMod = lightEquip ? 1 + lightEquip.effect / 100 : 1;
+    const helmetEquip = state.player.equipment.find(e => e.type === 'helmet' && e.owned);
+    const helmetMod = helmetEquip ? 1 - helmetEquip.effect / 100 : 1;
+
     const weatherSpeedMod = getWeatherSpeedModifier(state.weather);
     const speedSkillBonus = 1 + getSkillTotalEffect(state.player.skills.find(s => s.id === 'speed')!) / 100;
     const enduranceMod = 1 - getSkillTotalEffect(state.player.skills.find(s => s.id === 'endurance')!) / 100;
-    const ledLightBonus = state.player.equipment.find(e => e.type === 'light' && e.owned) ? 1.1 : 1;
+    const maintenanceMod = 1 - state.vehicle.maintenanceBonus;
     const durabilityMod = newDurability > 50 ? 1 : newDurability > 20 ? 0.85 : 0.6;
     const batteryEmptyMod = newBattery > 10 ? 1 : newBattery > 0 ? 0.5 : 0;
     const staminaMod = newStamina > 30 ? 1 : newStamina > 0 ? 0.6 : 0.3;
 
-    let actualSpeed = state.vehicle.speed * weatherSpeedMod * speedSkillBonus * ledLightBonus * durabilityMod * batteryEmptyMod * staminaMod;
+    let actualSpeed = state.vehicle.speed * weatherSpeedMod * speedSkillBonus * lightMod * durabilityMod * batteryEmptyMod * staminaMod;
 
     if (newDurability < 10 && newRoute.length > 1 && Math.random() < 0.002 * dt) {
       vehicleBrokeDown = true;
@@ -436,11 +585,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newTargetNodeId = null;
       newRouteProgress = 0;
       
-      get().addMessage({
-        sender: '系统',
-        content: '💥 车辆故障！耐久度过低导致抛锚，请尽快到修车铺维修。所有活动订单可能受影响。',
-        type: 'system',
-      });
+      let damageCost = 0;
+      if (state.vehicle.insurance && state.vehicle.insurance.active) {
+        damageCost = Math.floor(100 * (1 - state.vehicle.insurance.coverage));
+        get().addMessage({
+          sender: '系统',
+          content: `💥 车辆故障！保险已赔付部分损失，需支付¥${damageCost}。可在车辆页呼叫救援。`,
+          type: 'system',
+        });
+      } else {
+        damageCost = 100;
+        get().addMessage({
+          sender: '系统',
+          content: `💥 车辆故障！耐久度过低导致抛锚，请尽快到修车铺维修或呼叫救援。已取餐订单可能失败。需支付修理费¥${damageCost}。`,
+          type: 'system',
+        });
+      }
 
       const penaltyOrders: Order[] = [];
       const remainingActive: Order[] = [];
@@ -452,12 +612,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
       
-      if (penaltyOrders.length > 0) {
-        set(s => ({
-          activeOrders: remainingActive,
-          failedOrders: [...s.failedOrders, ...penaltyOrders],
-        }));
-      }
+      const newRepairRecords = [...state.player.repairRecords, {
+        id: generateId(),
+        nodeId: state.currentNodeId,
+        shopName: '道路救援',
+        type: 'repair' as const,
+        cost: damageCost,
+        amount: 0,
+        description: '故障维修费用',
+        createdAt: Date.now(),
+      }];
+      
+      set(s => ({
+        activeOrders: remainingActive,
+        failedOrders: [...s.failedOrders, ...penaltyOrders],
+        currentEarnings: Math.max(0, s.currentEarnings - damageCost),
+        sessionRepairCost: s.sessionRepairCost + damageCost,
+        player: {
+          ...s.player,
+          repairRecords: newRepairRecords,
+          vehicle: { ...s.vehicle, totalRepairCost: s.vehicle.totalRepairCost + damageCost },
+        },
+      }));
+      get().savePlayer();
     }
 
     if (!vehicleBrokeDown && newBattery > 0 && newRoute.length > 1 && newTargetNodeId) {
@@ -515,7 +692,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           newPosition.y = currentNode.y + (nextNode.y - currentNode.y) * newRouteProgress;
         }
 
-        newStamina -= 0.02 * dt * state.speedMultiplier * enduranceMod;
+        newStamina -= 0.02 * dt * state.speedMultiplier * enduranceMod * helmetMod;
         newBattery -= state.vehicle.batteryDrain * dt * state.speedMultiplier * (1 / weatherSpeedMod);
       }
     } else {
@@ -524,9 +701,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     newStamina = Math.max(0, Math.min(state.player.maxStamina, newStamina));
     newBattery = Math.max(0, Math.min(state.vehicle.maxBattery, newBattery));
-
-    const insulationBonus = state.player.equipment.find(e => e.type === 'insulation' && e.owned);
-    const insulationMod = insulationBonus ? 1 - insulationBonus.effect / 100 : 1;
 
     const updatedAvailable = state.availableOrders.map(order => {
       const newTimeLimit = order.timeLimit - dt;
@@ -579,13 +753,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (!vehicleBrokeDown) {
-      newDurability = Math.max(0, newDurability - 0.003 * dt * state.speedMultiplier / enduranceMod);
+      newDurability = Math.max(0, newDurability - 0.003 * dt * state.speedMultiplier / enduranceMod * glovesMod * maintenanceMod);
     }
 
     if (newDurability < 10 && state.vehicle.durability >= 10) {
       get().addMessage({
         sender: '系统',
-        content: '⚠️ 车辆耐久度过低！继续行驶可能抛锚，请尽快到修车铺维修。',
+        content: '⚠️ 车辆耐久度过低！继续行驶可能抛锚，请尽快到修车铺维修或购买保险。',
         type: 'system',
       });
     }
@@ -593,7 +767,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (newBattery < 10 && state.vehicle.battery >= 10) {
       get().addMessage({
         sender: '系统',
-        content: '⚡ 电量不足！请尽快充电。',
+        content: '⚡ 电量不足！请尽快充电或呼叫救援。',
         type: 'system',
       });
     }
@@ -617,6 +791,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }
 
+    let newMaintenanceBonus = state.vehicle.maintenanceBonus;
+    if (state.vehicle.lastMaintenanceAt > 0 && state.gameTime - state.vehicle.lastMaintenanceAt > 1200) {
+      newMaintenanceBonus = 0;
+    }
+
+    let newInsurance = state.vehicle.insurance;
+    if (newInsurance && newInsurance.expiresAt < Date.now()) {
+      newInsurance = { ...newInsurance, active: false };
+    }
+
     set({
       remainingTime: newRemainingTime,
       gameTime: newGameTime,
@@ -630,6 +814,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...state.vehicle,
         battery: newBattery,
         durability: newDurability,
+        maintenanceBonus: newMaintenanceBonus,
+        insurance: newInsurance,
       },
       availableOrders: newAvailable,
       activeOrders: stillActive,
@@ -797,6 +983,78 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().addMessage({
       sender: '系统',
       content: `订单已取消，扣除违约金¥${penalty}，声誉-1`,
+      type: 'system',
+    });
+  },
+
+  callRescue: () => {
+    const state = get();
+    if (state.isBeingRescued) return;
+    
+    const nearest = findNearestChargingStation(state.currentNodeId);
+    if (!nearest) return;
+    
+    const currentNode = getNode(state.currentNodeId);
+    if (!currentNode) return;
+    
+    const distance = calculateDistance(currentNode, nearest);
+    let baseCost = Math.floor(distance / 5) + 30;
+    let timeCost = Math.floor(distance / 30) + 10;
+    
+    if (state.vehicle.insurance && state.vehicle.insurance.active) {
+      baseCost = Math.floor(baseCost * (1 - state.vehicle.insurance.coverage));
+    }
+    
+    const totalMoney = state.currentEarnings + state.player.money;
+    
+    if (totalMoney >= baseCost) {
+      set({
+        isBeingRescued: true,
+        rescueProgress: 0,
+        rescueTargetNodeId: nearest.id,
+        rescueCost: baseCost,
+        rescueTimeCost: timeCost,
+        currentRoute: [],
+        targetNodeId: null,
+      });
+      
+      get().addMessage({
+        sender: '救援中心',
+        content: `救援已派出！将送至${nearest.name}，预计${timeCost}秒到达，费用¥${baseCost}。`,
+        type: 'system',
+      });
+    } else {
+      set({
+        isBeingRescued: true,
+        rescueProgress: 0,
+        rescueTargetNodeId: nearest.id,
+        rescueCost: 0,
+        rescueTimeCost: timeCost + 30,
+        currentRoute: [],
+        targetNodeId: null,
+      });
+      
+      get().addMessage({
+        sender: '救援中心',
+        content: `余额不足！已启动应急救援，送至${nearest.name}后需完成1单低收益应急任务抵扣费用，预计${timeCost + 30}秒到达。`,
+        type: 'system',
+      });
+    }
+  },
+
+  acceptEmergencyMission: () => {
+    const state = get();
+    const emergencyOrder = generateOrder(1, 0);
+    emergencyOrder.reward = Math.max(5, Math.floor(emergencyOrder.reward * 0.3));
+    emergencyOrder.timeLimit = Math.floor(emergencyOrder.timeLimit * 1.5);
+    
+    set(s => ({
+      availableOrders: [emergencyOrder, ...s.availableOrders],
+    }));
+    
+    get().addMessage({
+      sender: '系统',
+      content: `应急任务已派发！完成后救援费用自动抵扣。该订单奖励较低，请尽快完成。`,
       type: 'system',
     });
   },
@@ -1006,6 +1264,108 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
+  buyInsurance: (type: 'basic' | 'full') => {
+    const state = get();
+    const currentNode = getNode(state.currentNodeId);
+    if (!currentNode || currentNode.type !== 'repair') return;
+    
+    const index = type === 'basic' ? 0 : 1;
+    const option = INSURANCE_OPTIONS[index];
+    if (!option) return;
+    if (state.currentEarnings + state.player.money < option.price) return;
+
+    let fromEarnings = Math.min(state.currentEarnings, option.price);
+    let fromMoney = option.price - fromEarnings;
+
+    const insurance: Insurance = {
+      id: generateId(),
+      ...option,
+      purchasedAt: Date.now(),
+      expiresAt: Date.now() + option.duration * 1000,
+      active: true,
+    };
+
+    const record: RepairRecord = {
+      id: generateId(),
+      nodeId: state.currentNodeId,
+      shopName: currentNode.name || '修车铺',
+      type: 'insurance',
+      cost: option.price,
+      amount: 0,
+      description: option.name + ': ' + option.description,
+      createdAt: Date.now(),
+    };
+
+    const newRepairRecords = [...state.player.repairRecords, record];
+
+    set(state => ({
+      vehicle: { ...state.vehicle, insurance },
+      currentEarnings: state.currentEarnings - fromEarnings,
+      player: {
+        ...state.player,
+        money: state.player.money - fromMoney,
+        repairRecords: newRepairRecords,
+      },
+      sessionRepairCost: state.sessionRepairCost + option.price,
+    }));
+    get().savePlayer();
+
+    get().addMessage({
+      sender: '修车铺',
+      content: `${option.name}已购买！${option.description}，有效期${option.duration / 60}分钟。`,
+      type: 'customer',
+    });
+  },
+
+  buyMaintenance: (type: 'basic' | 'full') => {
+    const state = get();
+    const currentNode = getNode(state.currentNodeId);
+    if (!currentNode || currentNode.type !== 'repair') return;
+    
+    const index = type === 'basic' ? 0 : 1;
+    const option = MAINTENANCE_OPTIONS[index];
+    if (!option) return;
+    if (state.currentEarnings + state.player.money < option.price) return;
+
+    let fromEarnings = Math.min(state.currentEarnings, option.price);
+    let fromMoney = option.price - fromEarnings;
+
+    const record: RepairRecord = {
+      id: generateId(),
+      nodeId: state.currentNodeId,
+      shopName: currentNode.name || '修车铺',
+      type: 'maintenance',
+      cost: option.price,
+      amount: 0,
+      description: option.name + ': ' + option.description,
+      createdAt: Date.now(),
+    };
+
+    const newRepairRecords = [...state.player.repairRecords, record];
+
+    set(state => ({
+      vehicle: { 
+        ...state.vehicle, 
+        maintenanceBonus: option.effect,
+        lastMaintenanceAt: state.gameTime,
+      },
+      currentEarnings: state.currentEarnings - fromEarnings,
+      player: {
+        ...state.player,
+        money: state.player.money - fromMoney,
+        repairRecords: newRepairRecords,
+      },
+      sessionRepairCost: state.sessionRepairCost + option.price,
+    }));
+    get().savePlayer();
+
+    get().addMessage({
+      sender: '修车铺',
+      content: `${option.name}已完成！${option.description}。`,
+      type: 'customer',
+    });
+  },
+
   setTargetNode: (nodeId: string) => {
     const state = get();
     if (state.vehicle.battery <= 0) {
@@ -1016,7 +1376,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
       return;
     }
-    if (state.isAtTrafficLight) {
+    if (state.isAtTrafficLight || state.isBeingRescued) {
       return;
     }
     const path = findShortestPath(state.currentNodeId, nodeId);
@@ -1073,18 +1433,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (equipment.type === 'battery') {
       newMaxBattery = 100 + equipment.effect;
     }
-
-    let newMaxStamina = state.player.maxStamina;
-    if (equipment.type === 'helmet') {
-      newMaxStamina = state.player.maxStamina;
-    }
     
     set({
       player: {
         ...state.player,
         money: state.player.money - equipment.price,
         equipment: newEquipment,
-        maxStamina: newMaxStamina,
       },
       vehicle: { ...state.vehicle, maxBattery: newMaxBattery },
     });
@@ -1159,25 +1513,49 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!currentNode || currentNode.type !== 'repair') return;
     
     const repairAmount = Math.min(amount, state.vehicle.maxDurability - state.vehicle.durability);
-    const cost = Math.ceil(repairAmount * 0.5);
+    let cost = Math.ceil(repairAmount * 0.5);
+    
+    if (state.vehicle.insurance && state.vehicle.insurance.active) {
+      cost = Math.ceil(cost * 0.7);
+    }
     
     if (state.currentEarnings + state.player.money < cost) return;
 
     let fromEarnings = Math.min(state.currentEarnings, cost);
     let fromMoney = cost - fromEarnings;
     
+    const record: RepairRecord = {
+      id: generateId(),
+      nodeId: state.currentNodeId,
+      shopName: currentNode.name || '修车铺',
+      type: 'repair',
+      cost,
+      amount: repairAmount,
+      description: `维修耐久 +${Math.round(repairAmount)}%`,
+      createdAt: Date.now(),
+    };
+
+    const newRepairRecords = [...state.player.repairRecords, record];
+    
     set({
       vehicle: {
         ...state.vehicle,
         durability: state.vehicle.durability + repairAmount,
+        totalRepairCost: state.vehicle.totalRepairCost + cost,
       },
       currentEarnings: state.currentEarnings - fromEarnings,
-      player: { ...state.player, money: state.player.money - fromMoney },
+      player: {
+        ...state.player,
+        money: state.player.money - fromMoney,
+        repairRecords: newRepairRecords,
+      },
+      sessionRepairCost: state.sessionRepairCost + cost,
     });
+    get().savePlayer();
 
     get().addMessage({
       sender: '修车铺',
-      content: `🔧 维修完成：+${Math.round(repairAmount)}%耐久，花费¥${cost}，故障风险已解除。`,
+      content: `🔧 维修完成：+${Math.round(repairAmount)}%耐久，花费¥${cost}${state.vehicle.insurance?.active ? '（保险优惠30%）' : ''}，故障风险已解除。`,
       type: 'customer',
     });
   },
@@ -1248,6 +1626,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ...data, 
             skills: mergedSkills,
             equipment: mergedEquipment,
+            repairRecords: data.repairRecords || [],
+            rescueRecords: data.rescueRecords || [],
+            totalRescueCost: data.totalRescueCost || 0,
           } 
         });
       }
