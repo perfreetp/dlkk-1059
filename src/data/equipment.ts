@@ -1,4 +1,4 @@
-import type { Equipment, Skill } from '../types';
+import type { Skill, Equipment } from '../types';
 
 export const INITIAL_EQUIPMENT: Equipment[] = [
   {
@@ -33,7 +33,7 @@ export const INITIAL_EQUIPMENT: Equipment[] = [
     name: '保暖手套',
     type: 'gloves',
     effect: 15,
-    description: '加厚保暖手套，雨天操作更稳。',
+    description: '加厚保暖手套，雨天操作更稳，耐久消耗减少。',
     price: 150,
     owned: false,
   },
@@ -69,7 +69,7 @@ export const INITIAL_EQUIPMENT: Equipment[] = [
     name: 'LED大灯',
     type: 'light',
     effect: 20,
-    description: '高亮LED大灯，夜间视野更好。',
+    description: '高亮LED大灯，夜间和雨天速度加成。',
     price: 180,
     owned: false,
   },
@@ -87,7 +87,7 @@ export const INITIAL_EQUIPMENT: Equipment[] = [
     name: '大容量电池',
     type: 'battery',
     effect: 50,
-    description: '大容量电池，续航增加50%。',
+    description: '大容量电池，最大电量增加50%。',
     price: 500,
     owned: false,
   },
@@ -100,54 +100,90 @@ export const INITIAL_SKILLS: Skill[] = [
     description: '提升骑行速度',
     level: 0,
     maxLevel: 5,
-    effect: 5,
+    effectPerLevel: 5,
+    unit: '%',
+    category: 'speed',
   },
   {
     id: 'stamina',
     name: '体力充沛',
-    description: '增加最大体力',
+    description: '增加最大体力上限',
     level: 0,
     maxLevel: 5,
-    effect: 20,
+    effectPerLevel: 20,
+    unit: '',
+    category: 'stamina',
   },
   {
-    id: 'navigation',
-    name: '路路通',
-    description: '解锁更多路线信息',
-    level: 0,
-    maxLevel: 3,
-    effect: 10,
-  },
-  {
-    id: 'charm',
+    id: 'tip_chance',
     name: '微笑服务',
-    description: '增加好评率和小费',
+    description: '提升获得小费的概率和金额',
     level: 0,
     maxLevel: 5,
-    effect: 10,
-  },
-  {
-    id: 'luck',
-    name: '好运加持',
-    description: '增加遇到好单的概率',
-    level: 0,
-    maxLevel: 3,
-    effect: 15,
+    effectPerLevel: 10,
+    unit: '%',
+    category: 'tip',
   },
   {
     id: 'defense',
     name: '申诉专家',
     description: '提高差评申诉成功率',
     level: 0,
+    maxLevel: 5,
+    effectPerLevel: 15,
+    unit: '%',
+    category: 'appeal',
+  },
+  {
+    id: 'endurance',
+    name: '耐力达人',
+    description: '减少体力消耗速度',
+    level: 0,
+    maxLevel: 5,
+    effectPerLevel: 10,
+    unit: '%',
+    category: 'endurance',
+  },
+  {
+    id: 'navigation',
+    name: '路路通',
+    description: '熟悉路况，减少路口等待时间',
+    level: 0,
     maxLevel: 3,
-    effect: 20,
+    effectPerLevel: 15,
+    unit: '%',
+    category: 'navigation',
   },
 ];
 
 export const getSkillUpgradeCost = (skill: Skill): number => {
-  return Math.floor(100 * Math.pow(1.5, skill.level));
+  return Math.floor(100 * Math.pow(1.6, skill.level));
 };
 
-export const getTotalSkillEffect = (skill: Skill): number => {
-  return skill.effect * skill.level;
+export const getSkillTotalEffect = (skill: Skill): number => {
+  return skill.effectPerLevel * skill.level;
+};
+
+export const getSkillCategoryLabel = (category: Skill['category']): string => {
+  const labels: Record<Skill['category'], string> = {
+    speed: '速度',
+    stamina: '体力',
+    tip: '小费',
+    appeal: '申诉',
+    endurance: '耐力',
+    navigation: '导航',
+  };
+  return labels[category];
+};
+
+export const getSkillCategoryColor = (category: Skill['category']): string => {
+  const colors: Record<Skill['category'], string> = {
+    speed: 'text-neon-blue',
+    stamina: 'text-green-400',
+    tip: 'text-neon-yellow',
+    appeal: 'text-neon-pink',
+    endurance: 'text-orange-400',
+    navigation: 'text-purple-400',
+  };
+  return colors[category];
 };

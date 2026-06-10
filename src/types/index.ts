@@ -4,9 +4,17 @@ export type OrderType = 'normal' | 'urgent' | 'large' | 'special';
 
 export type OrderStatus = 'pending' | 'accepted' | 'picked' | 'delivered' | 'failed';
 
-export type MessageType = 'story' | 'customer' | 'system';
+export type MessageType = 'story' | 'customer' | 'system' | 'report' | 'appeal';
 
-export type PanelType = 'map' | 'orders' | 'backpack' | 'vehicle' | 'messages' | 'settlement';
+export type PanelType = 'map' | 'orders' | 'backpack' | 'vehicle' | 'messages' | 'settlement' | 'leaderboard';
+
+export type TrafficLightState = 'red' | 'yellow' | 'green';
+
+export type RoadEventType = 'flood' | 'slope' | 'traffic_jam' | 'accident' | 'construction';
+
+export type ReportStatus = 'pending' | 'approved' | 'rejected';
+
+export type AppealStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Point {
   x: number;
@@ -17,9 +25,33 @@ export interface MapNode {
   id: string;
   x: number;
   y: number;
-  type: 'road' | 'intersection' | 'restaurant' | 'building' | 'charging' | 'rest';
+  type: 'road' | 'intersection' | 'restaurant' | 'building' | 'charging' | 'rest' | 'repair';
   name?: string;
   connections: string[];
+  hasTrafficLight?: boolean;
+  isSlope?: boolean;
+  slopeDifficulty?: number;
+}
+
+export interface TrafficLight {
+  nodeId: string;
+  state: TrafficLightState;
+  timer: number;
+  redDuration: number;
+  yellowDuration: number;
+  greenDuration: number;
+}
+
+export interface RoadEvent {
+  id: string;
+  type: RoadEventType;
+  nodeId: string;
+  description: string;
+  speedPenalty: number;
+  staminaCost: number;
+  batteryCost: number;
+  duration: number;
+  createdAt: number;
 }
 
 export interface Order {
@@ -39,6 +71,36 @@ export interface Order {
   createdAt: number;
   pickedAt?: number;
   deliveredAt?: number;
+  rating?: number;
+  hasIssue?: boolean;
+  issueType?: 'late' | 'cold' | 'note_ignored' | 'damaged';
+  report?: OrderReport;
+  appeal?: OrderAppeal;
+}
+
+export interface OrderReport {
+  id: string;
+  orderId: string;
+  reason: string;
+  description: string;
+  status: ReportStatus;
+  createdAt: number;
+  resolvedAt?: number;
+  result?: string;
+  compensation?: number;
+}
+
+export interface OrderAppeal {
+  id: string;
+  orderId: string;
+  reason: string;
+  description: string;
+  status: AppealStatus;
+  createdAt: number;
+  resolvedAt?: number;
+  result?: string;
+  penaltyRefunded?: number;
+  reputationRestored?: number;
 }
 
 export interface Vehicle {
@@ -58,7 +120,9 @@ export interface Skill {
   description: string;
   level: number;
   maxLevel: number;
-  effect: number;
+  effectPerLevel: number;
+  unit: string;
+  category: 'speed' | 'stamina' | 'tip' | 'appeal' | 'endurance' | 'navigation';
 }
 
 export interface Equipment {
@@ -93,6 +157,23 @@ export interface Message {
   type: MessageType;
   read: boolean;
   orderId?: string;
+  reportId?: string;
+  appealId?: string;
+  actionRequired?: boolean;
+}
+
+export interface ChapterRecord {
+  chapterId: string;
+  bestScore: number;
+  totalDeliveries: number;
+  successfulDeliveries: number;
+  failedDeliveries: number;
+  totalEarnings: number;
+  totalTips: number;
+  bestTime: number;
+  averageTimePerOrder: number;
+  playCount: number;
+  lastPlayedAt: number;
 }
 
 export interface PlayerState {
@@ -106,8 +187,17 @@ export interface PlayerState {
   equipment: Equipment[];
   unlockedChapters: string[];
   highScores: Record<string, number>;
+  chapterRecords: Record<string, ChapterRecord>;
   totalDeliveries: number;
+  totalSuccessfulDeliveries: number;
+  totalFailedDeliveries: number;
+  totalEarnings: number;
+  totalTips: number;
+  totalDistance: number;
+  totalPlayTime: number;
   reputation: number;
+  reports: OrderReport[];
+  appeals: OrderAppeal[];
 }
 
 export interface GameState {
@@ -144,6 +234,16 @@ export interface GameState {
   
   speedMultiplier: number;
   isSettled: boolean;
+
+  trafficLights: TrafficLight[];
+  roadEvents: RoadEvent[];
+  currentEvent: RoadEvent | null;
+  isAtTrafficLight: boolean;
+  currentTrafficLight: TrafficLight | null;
+  waitingAtLight: boolean;
+  
+  sessionDeliveries: number;
+  sessionDistance: number;
 }
 
 export interface GameStats {
@@ -157,10 +257,10 @@ export interface GameStats {
   playTime: number;
 }
 
-export interface TrafficLight {
-  nodeId: string;
-  state: 'red' | 'green' | 'yellow';
-  timer: number;
-  redDuration: number;
-  greenDuration: number;
+export interface LeaderboardEntry {
+  rank: number;
+  name: string;
+  score: number;
+  deliveries: number;
+  successRate: number;
 }

@@ -1,6 +1,6 @@
 import { useGameStore } from '../../store/gameStore';
 import type { PanelType } from '../../types';
-import { Map, ClipboardList, Backpack, Bike, MessageSquare, BarChart3 } from 'lucide-react';
+import { Map, ClipboardList, Backpack, Bike, MessageSquare, BarChart3, Trophy } from 'lucide-react';
 
 interface NavItem {
   id: PanelType;
@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { id: 'vehicle', icon: Bike, label: '车辆', color: 'neon-green' },
   { id: 'messages', icon: MessageSquare, label: '消息', color: 'neon-purple' },
   { id: 'settlement', icon: BarChart3, label: '结算', color: 'neon-blue' },
+  { id: 'leaderboard', icon: Trophy, label: '排行', color: 'neon-yellow' },
 ];
 
 const SidebarNav = () => {

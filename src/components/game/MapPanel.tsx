@@ -1,6 +1,6 @@
 import { useGameStore } from '../../store/gameStore';
 import { MAP_NODES, MAP_WIDTH, MAP_HEIGHT, getNode } from '../../data/mapData';
-import { CloudRain, CloudLightning, Cloud, Zap, Coffee } from 'lucide-react';
+import { CloudRain, CloudLightning, Cloud, Zap, Coffee, Wrench, AlertTriangle, Mountain, Timer, AlertOctagon } from 'lucide-react';
 
 const MapPanel = () => {
   const {
@@ -13,6 +13,12 @@ const MapPanel = () => {
     setTargetNode,
     selectOrder,
     vehicle,
+    trafficLights,
+    roadEvents,
+    isAtTrafficLight,
+    currentTrafficLight,
+    runRedLight,
+    waitAtLight,
   } = useGameStore();
 
   const getWeatherIcon = () => {
@@ -55,6 +61,8 @@ const MapPanel = () => {
         return '#00ff88';
       case 'rest':
         return '#ffcc00';
+      case 'repair':
+        return '#ff8c00';
       case 'intersection':
         return '#4a5568';
       default:
@@ -72,8 +80,31 @@ const MapPanel = () => {
         return '⚡';
       case 'rest':
         return '☕';
+      case 'repair':
+        return '🔧';
       default:
         return '';
+    }
+  };
+
+  const getTrafficLightColor = (nodeId: string) => {
+    const light = trafficLights.find(l => l.nodeId === nodeId);
+    if (!light) return null;
+    switch (light.state) {
+      case 'red': return '#ef4444';
+      case 'yellow': return '#eab308';
+      case 'green': return '#22c55e';
+    }
+  };
+
+  const getRoadEventIcon = (type: string) => {
+    switch (type) {
+      case 'flood': return '🌊';
+      case 'traffic_jam': return '🚗';
+      case 'construction': return '🚧';
+      case 'accident': return '⚠️';
+      case 'slope': return '⛰️';
+      default: return '❓';
     }
   };
 
@@ -136,7 +167,37 @@ const MapPanel = () => {
 
   const handleNodeClick = (nodeId: string) => {
     if (nodeId === currentNodeId) return;
+    if (isAtTrafficLight) return;
     setTargetNode(nodeId);
+  };
+
+  const renderRoadEvents = () => {
+    return roadEvents.map(event => {
+      const node = getNode(event.nodeId);
+      if (!node) return null;
+      return (
+        <g key={event.id} className="animate-pulse">
+          <circle
+            cx={node.x}
+            cy={node.y - 30}
+            r="12"
+            fill="#f97316"
+            fillOpacity="0.3"
+            stroke="#f97316"
+            strokeWidth="2"
+          />
+          <text
+            x={node.x}
+            y={node.y - 26}
+            textAnchor="middle"
+            fontSize="14"
+            className="pointer-events-none select-none"
+          >
+            {getRoadEventIcon(event.type)}
+          </text>
+        </g>
+      );
+    });
   };
 
   return (
@@ -154,6 +215,20 @@ const MapPanel = () => {
           </span>
         </div>
       </div>
+
+      {roadEvents.length > 0 && (
+        <div className="absolute top-16 left-3 z-10 px-3 py-2 glass-panel max-w-[200px]">
+          <div className="flex items-center gap-1 text-xs text-orange-400 mb-1">
+            <AlertTriangle className="w-3 h-3" />
+            <span>路况事件</span>
+          </div>
+          {roadEvents.slice(0, 2).map(event => (
+            <div key={event.id} className="text-xs text-gray-400">
+              {getRoadEventIcon(event.type)} {event.description}
+            </div>
+          ))}
+        </div>
+      )}
 
       <svg
         className="w-full h-full"
@@ -178,6 +253,7 @@ const MapPanel = () => {
 
         {renderConnections()}
         {renderRoute()}
+        {renderRoadEvents()}
 
         {MAP_NODES.map(node => (
           <g
@@ -185,10 +261,22 @@ const MapPanel = () => {
             onClick={() => handleNodeClick(node.id)}
             className="cursor-pointer transition-all"
           >
+            {node.isSlope && (
+              <text
+                x={node.x - 20}
+                y={node.y - 15}
+                textAnchor="middle"
+                fontSize="12"
+                className="pointer-events-none select-none"
+              >
+                ⛰️
+              </text>
+            )}
+            
             <circle
               cx={node.x}
               cy={node.y}
-              r={node.type === 'intersection' ? 8 : 14}
+              r={node.type === 'intersection' ? 12 : 14}
               fill={getNodeColor(node)}
               fillOpacity="0.3"
               stroke={getNodeColor(node)}
@@ -196,6 +284,30 @@ const MapPanel = () => {
               filter={node.type !== 'intersection' ? 'url(#glow)' : undefined}
               className="transition-all hover:fill-opacity-50"
             />
+            
+            {node.hasTrafficLight && (
+              <>
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r="6"
+                  fill={getTrafficLightColor(node.id) || '#4a5568'}
+                  className="transition-colors duration-300"
+                  filter="url(#glow)"
+                />
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r="18"
+                  fill="none"
+                  stroke={getTrafficLightColor(node.id) || '#4a5568'}
+                  strokeWidth="1"
+                  strokeDasharray="3,3"
+                  opacity="0.5"
+                />
+              </>
+            )}
+            
             {node.type !== 'intersection' && (
               <text
                 x={node.x}
@@ -314,7 +426,51 @@ const MapPanel = () => {
         </g>
       </svg>
 
-      <div className="absolute bottom-3 left-3 right-3 flex gap-2 text-xs">
+      {isAtTrafficLight && currentTrafficLight && (
+        <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center">
+          <div className="glass-panel p-6 max-w-sm w-full mx-4 animate-pulse">
+            <div className="text-center mb-4">
+              <div className="w-20 h-20 mx-auto mb-3 rounded-full flex items-center justify-center"
+                style={{ 
+                  backgroundColor: currentTrafficLight.state === 'red' ? 'rgba(239,68,68,0.2)' : 'rgba(234,179,8,0.2)',
+                  border: `3px solid ${currentTrafficLight.state === 'red' ? '#ef4444' : '#eab308'}`
+                }}
+              >
+                <span className="text-4xl">🚦</span>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-1">
+                {currentTrafficLight.state === 'red' ? '红灯' : '黄灯'}
+              </h3>
+              <p className="text-sm text-gray-400">
+                等待约 {Math.ceil(currentTrafficLight.timer)} 秒变绿
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <button
+                onClick={waitAtLight}
+                className="w-full py-3 rounded-lg bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500/30 transition-all flex items-center justify-center gap-2"
+              >
+                <Timer className="w-5 h-5" />
+                等待绿灯（安全）
+              </button>
+              <button
+                onClick={runRedLight}
+                className="w-full py-3 rounded-lg bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30 transition-all flex items-center justify-center gap-2"
+              >
+                <AlertOctagon className="w-5 h-5" />
+                冒险闯灯（有风险）
+              </button>
+            </div>
+            
+            <p className="text-xs text-gray-500 text-center mt-4">
+              闯灯可能：罚款¥50、声誉-5、车辆损伤
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap gap-2 text-xs">
         <div className="flex items-center gap-1 px-2 py-1 glass-panel">
           <span className="w-3 h-3 rounded-full bg-pink-500"></span>
           <span className="text-gray-400">餐厅</span>
@@ -330,6 +486,18 @@ const MapPanel = () => {
         <div className="flex items-center gap-1 px-2 py-1 glass-panel">
           <Coffee className="w-3 h-3 text-yellow-400" />
           <span className="text-gray-400">休息站</span>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 glass-panel">
+          <Wrench className="w-3 h-3 text-orange-400" />
+          <span className="text-gray-400">修车铺</span>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 glass-panel">
+          <Mountain className="w-3 h-3 text-gray-400" />
+          <span className="text-gray-400">坡道</span>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 glass-panel">
+          <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+          <span className="text-gray-400">红绿灯</span>
         </div>
       </div>
     </div>

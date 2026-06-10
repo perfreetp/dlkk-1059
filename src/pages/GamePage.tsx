@@ -10,6 +10,7 @@ import BackpackPanel from '../components/game/BackpackPanel';
 import VehiclePanel from '../components/game/VehiclePanel';
 import MessagesPanel from '../components/game/MessagesPanel';
 import SettlementPanel from '../components/game/SettlementPanel';
+import LeaderboardPanel from '../components/game/LeaderboardPanel';
 import RainEffect from '../components/game/RainEffect';
 
 const GamePage = () => {
@@ -60,6 +61,8 @@ const GamePage = () => {
         return <MessagesPanel />;
       case 'settlement':
         return <SettlementPanel />;
+      case 'leaderboard':
+        return <LeaderboardPanel />;
       default:
         return <MapPanel />;
     }
