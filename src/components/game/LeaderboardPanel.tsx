@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { CHAPTERS } from '../../data/chapters';
 import { 
@@ -7,56 +8,82 @@ import {
 import type { ChapterRecord, LeaderboardEntry } from '../../types';
 
 const formatTime = (seconds: number): string => {
-  if (seconds === Infinity || seconds === 0) return '--:--';
+  if (seconds === Infinity || seconds === 0 || !isFinite(seconds)) return '--:--';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-const generateMockLeaderboard = (playerScore: number, playerName: string): LeaderboardEntry[] => {
-  const names = ['雨夜骑士', '闪电侠', '外卖之王', '夜行侠', '飞毛腿', '风之子', '极速者', '暗夜精灵', '路路通', '老司机'];
-  const entries: LeaderboardEntry[] = [];
-  
-  for (let i = 0; i < 9; i++) {
-    const baseScore = 500 + Math.random() * 1500;
-    entries.push({
-      rank: i + 1,
-      name: names[i],
-      score: Math.floor(baseScore),
-      deliveries: Math.floor(10 + Math.random() * 30),
-      successRate: 75 + Math.random() * 25,
-    });
+const DEFAULT_LEADERBOARD: LeaderboardEntry[] = [
+  { rank: 1, name: '雨夜骑士', score: 1850, deliveries: 42, successRate: 96 },
+  { rank: 2, name: '闪电侠', score: 1680, deliveries: 38, successRate: 92 },
+  { rank: 3, name: '外卖之王', score: 1520, deliveries: 35, successRate: 89 },
+  { rank: 4, name: '夜行侠', score: 1380, deliveries: 32, successRate: 87 },
+  { rank: 5, name: '飞毛腿', score: 1250, deliveries: 30, successRate: 85 },
+  { rank: 6, name: '风之子', score: 1120, deliveries: 28, successRate: 82 },
+  { rank: 7, name: '极速者', score: 980, deliveries: 25, successRate: 80 },
+  { rank: 8, name: '暗夜精灵', score: 850, deliveries: 22, successRate: 78 },
+  { rank: 9, name: '路路通', score: 720, deliveries: 20, successRate: 75 },
+  { rank: 10, name: '老司机', score: 600, deliveries: 18, successRate: 72 },
+];
+
+const loadLeaderboard = (): LeaderboardEntry[] => {
+  try {
+    const saved = localStorage.getItem('delivery_rider_leaderboard_v1');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error('Failed to load leaderboard:', e);
   }
-  
-  let playerRank = 1;
-  for (const e of entries) {
-    if (playerScore < e.score) playerRank++;
+  return DEFAULT_LEADERBOARD;
+};
+
+const saveLeaderboard = (data: LeaderboardEntry[]) => {
+  try {
+    localStorage.setItem('delivery_rider_leaderboard_v1', JSON.stringify(data));
+  } catch (e) {
+    console.error('Failed to save leaderboard:', e);
   }
-  
-  entries.push({
-    rank: playerRank,
+};
+
+const mergePlayerToLeaderboard = (baseList: LeaderboardEntry[], playerScore: number, playerName: string, deliveries: number, successRate: number): LeaderboardEntry[] => {
+  const playerEntry: LeaderboardEntry = {
+    rank: 0,
     name: playerName + ' (我)',
     score: playerScore,
-    deliveries: 0,
-    successRate: 0,
-  });
-  
-  entries.sort((a, b) => b.score - a.score);
-  entries.forEach((e, i) => e.rank = i + 1);
-  
-  return entries.slice(0, 10);
+    deliveries,
+    successRate,
+    isPlayer: true,
+  };
+
+  const filtered = baseList.filter(e => !e.isPlayer);
+  filtered.push(playerEntry);
+  filtered.sort((a, b) => b.score - a.score);
+  filtered.forEach((e, i) => e.rank = i + 1);
+  return filtered.slice(0, 10);
 };
 
 const LeaderboardPanel = () => {
   const { player } = useGameStore();
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
-  const totalScore = Object.values(player.chapterRecords).reduce((sum, r) => sum + r.bestScore, 0);
+  useEffect(() => {
+    const baseList = loadLeaderboard();
+    const totalScore = Object.values(player.chapterRecords).reduce((sum, r) => sum + r.bestScore, 0) + player.totalEarnings + player.totalTips;
+    const totalSuccessRate = player.totalDeliveries > 0 
+      ? Math.round((player.totalSuccessfulDeliveries / player.totalDeliveries) * 100) 
+      : 0;
+    const merged = mergePlayerToLeaderboard(baseList, totalScore, player.name, player.totalSuccessfulDeliveries, totalSuccessRate);
+    setLeaderboard(merged);
+    saveLeaderboard(merged);
+  }, [player.name, player.chapterRecords, player.totalEarnings, player.totalTips, player.totalSuccessfulDeliveries, player.totalDeliveries]);
+
+  const totalScore = Object.values(player.chapterRecords).reduce((sum, r) => sum + r.bestScore, 0) + player.totalEarnings + player.totalTips;
   const totalDeliveries = player.totalSuccessfulDeliveries;
   const totalSuccessRate = player.totalDeliveries > 0 
     ? Math.round((player.totalSuccessfulDeliveries / player.totalDeliveries) * 100) 
     : 0;
-  
-  const leaderboard = generateMockLeaderboard(totalScore, player.name);
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -67,7 +94,7 @@ const LeaderboardPanel = () => {
     }
   };
 
-  const getRankBg = (rank: number, isPlayer: boolean) => {
+  const getRankBg = (rank: number, isPlayer?: boolean) => {
     if (isPlayer) return 'bg-neon-blue/20 border-neon-blue/50';
     switch (rank) {
       case 1: return 'bg-yellow-500/10 border-yellow-500/30';
@@ -133,7 +160,7 @@ const LeaderboardPanel = () => {
           
           <div className="space-y-2">
             {leaderboard.map((entry) => {
-              const isPlayer = entry.name.includes('(我)');
+              const isPlayer = entry.isPlayer;
               return (
                 <div 
                   key={entry.name}
@@ -204,33 +231,40 @@ const LeaderboardPanel = () => {
                   </div>
                   
                   {record && record.playCount > 0 ? (
-                    <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-5 gap-1 text-xs">
                       <div className="bg-night-900/50 rounded p-1.5 text-center">
-                        <div className="text-gray-500 flex items-center justify-center gap-0.5">
+                        <div className="text-gray-500 flex items-center justify-center">
                           <TrendingUp className="w-3 h-3" />
                         </div>
                         <div className="text-neon-green font-medium">{successRate}%</div>
                         <div className="text-gray-600">成功率</div>
                       </div>
                       <div className="bg-night-900/50 rounded p-1.5 text-center">
-                        <div className="text-gray-500 flex items-center justify-center gap-0.5">
+                        <div className="text-gray-500 flex items-center justify-center">
                           <Zap className="w-3 h-3" />
                         </div>
                         <div className="text-neon-blue font-medium">{record.successfulDeliveries}</div>
                         <div className="text-gray-600">完成</div>
                       </div>
                       <div className="bg-night-900/50 rounded p-1.5 text-center">
-                        <div className="text-gray-500 flex items-center justify-center gap-0.5">
+                        <div className="text-gray-500 flex items-center justify-center">
                           <Clock className="w-3 h-3" />
                         </div>
                         <div className="text-neon-yellow font-medium">{formatTime(record.bestTime)}</div>
                         <div className="text-gray-600">最快</div>
                       </div>
                       <div className="bg-night-900/50 rounded p-1.5 text-center">
-                        <div className="text-gray-500 flex items-center justify-center gap-0.5">
+                        <div className="text-gray-500 flex items-center justify-center">
+                          <BarChart3 className="w-3 h-3" />
+                        </div>
+                        <div className="text-neon-pink font-medium">{formatTime(record.averageTimePerOrder || 0)}</div>
+                        <div className="text-gray-600">平均</div>
+                      </div>
+                      <div className="bg-night-900/50 rounded p-1.5 text-center">
+                        <div className="text-gray-500 flex items-center justify-center">
                           <Target className="w-3 h-3" />
                         </div>
-                        <div className="text-neon-pink font-medium">{record.playCount}</div>
+                        <div className="text-white font-medium">{record.playCount}</div>
                         <div className="text-gray-600">次数</div>
                       </div>
                     </div>

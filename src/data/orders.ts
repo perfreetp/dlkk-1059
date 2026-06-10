@@ -29,7 +29,7 @@ const generateId = (): string => {
   return Math.random().toString(36).substring(2, 10);
 };
 
-export const generateOrder = (difficulty: number = 1): Order => {
+export const generateOrder = (difficulty: number = 1, reputation: number = 50): Order => {
   const restaurants = getRestaurants();
   const buildings = getBuildings();
   
@@ -40,27 +40,33 @@ export const generateOrder = (difficulty: number = 1): Order => {
     building = buildings[Math.floor(Math.random() * buildings.length)];
   }
   
+  const repFactor = Math.max(-0.5, Math.min(0.5, (reputation - 50) / 100));
+  
   const typeRoll = Math.random();
   let type: OrderType = 'normal';
   let rewardMultiplier = 1;
   let timeMultiplier = 1;
   
-  if (typeRoll < 0.1 + difficulty * 0.05) {
+  const urgentChance = Math.max(0, 0.1 + difficulty * 0.05 + repFactor * 0.3);
+  const largeChance = Math.max(0, 0.25 + difficulty * 0.05 + repFactor * 0.2);
+  const specialChance = Math.max(0, 0.3 + difficulty * 0.02 + repFactor * 0.25);
+  
+  if (typeRoll < urgentChance) {
     type = 'urgent';
     rewardMultiplier = 1.5;
     timeMultiplier = 0.6;
-  } else if (typeRoll < 0.25 + difficulty * 0.05) {
+  } else if (typeRoll < largeChance) {
     type = 'large';
     rewardMultiplier = 1.8;
     timeMultiplier = 0.8;
-  } else if (typeRoll < 0.3 + difficulty * 0.02) {
+  } else if (typeRoll < specialChance) {
     type = 'special';
     rewardMultiplier = 2.0;
     timeMultiplier = 0.7;
   }
   
-  const baseReward = 15 + Math.floor(Math.random() * 20);
-  const reward = Math.floor(baseReward * rewardMultiplier * (1 + difficulty * 0.1));
+  const baseReward = 15 + Math.floor(Math.random() * 20) + Math.floor(repFactor * 15);
+  const reward = Math.max(5, Math.floor(baseReward * rewardMultiplier * (1 + difficulty * 0.1) * (0.8 + repFactor * 0.4)));
   
   const distance = Math.sqrt(
     Math.pow(restaurant.x - building.x, 2) + Math.pow(restaurant.y - building.y, 2)
@@ -90,10 +96,10 @@ export const generateOrder = (difficulty: number = 1): Order => {
   };
 };
 
-export const generateInitialOrders = (count: number, difficulty: number = 1): Order[] => {
+export const generateInitialOrders = (count: number, difficulty: number = 1, reputation: number = 50): Order[] => {
   const orders: Order[] = [];
   for (let i = 0; i < count; i++) {
-    const order = generateOrder(difficulty);
+    const order = generateOrder(difficulty, reputation);
     order.createdAt = Date.now() - Math.floor(Math.random() * 30000);
     order.timeLimit = Math.floor(order.timeLimit * (0.7 + Math.random() * 0.3));
     orders.push(order);

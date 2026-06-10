@@ -263,4 +263,5 @@ export interface LeaderboardEntry {
   score: number;
   deliveries: number;
   successRate: number;
+  isPlayer?: boolean;
 }

@@ -182,15 +182,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   startGame: (chapterId: string) => {
     const chapter = getChapter(chapterId);
     if (!chapter) return;
+    get().loadPlayer();
+    const { player } = get();
 
     const startNode = MAP_NODES[0];
-    const initialOrders = generateInitialOrders(3, chapter.difficulty);
     const trafficLights = createInitialTrafficLights();
 
-    const maxBatteryBonus = initialPlayerState.equipment.find(e => e.type === 'battery' && e.owned);
-    const maxStaminaBonus = initialPlayerState.skills.find(s => s.id === 'stamina');
-    const actualMaxStamina = 100 + (maxStaminaBonus ? getSkillTotalEffect(maxStaminaBonus) : 0);
-    const actualMaxBattery = 100 + (maxBatteryBonus ? maxBatteryBonus.effect : 0);
+    const batteryEquip = player.equipment.find(e => e.type === 'battery' && e.owned);
+    const staminaSkill = player.skills.find(s => s.id === 'stamina');
+    const actualMaxStamina = 100 + (staminaSkill ? getSkillTotalEffect(staminaSkill) : 0);
+    const actualMaxBattery = 100 + (batteryEquip ? batteryEquip.effect : 0);
+
+    const initialOrders = generateInitialOrders(3, chapter.difficulty, player.reputation);
 
     set({
       ...initialGameState,
@@ -206,16 +209,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...initialVehicle, 
         maxBattery: actualMaxBattery,
         battery: actualMaxBattery,
+        maxDurability: 100,
+        durability: 100,
       },
       stamina: actualMaxStamina,
       isSettled: false,
       trafficLights,
       roadEvents: [],
+      player: {
+        ...player,
+        maxStamina: actualMaxStamina,
+      },
     });
 
     get().addMessage({
       sender: '系统',
-      content: `欢迎来到${chapter.name}！目标收益：¥${chapter.targetEarnings}，注意安全！`,
+      content: `欢迎来到${chapter.name}！目标收益：¥${chapter.targetEarnings}，注意安全！当前声誉：${player.reputation}`,
       type: 'system',
     });
   },
@@ -280,10 +289,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (isWin && playTime < record.bestTime) {
       record.bestTime = playTime;
     }
-    const totalAllDeliveries = record.totalDeliveries;
-    record.averageTimePerOrder = totalAllDeliveries > 0 
-      ? (record.averageTimePerOrder * (totalAllDeliveries - totalSessionDeliveries) + playTime) / totalAllDeliveries 
-      : playTime;
+    const prevTotal = record.totalDeliveries - totalSessionDeliveries;
+    if (record.totalDeliveries > 0 && totalSessionDeliveries > 0) {
+      const avgTimePerOrderThisSession = totalSessionDeliveries > 0 ? playTime / totalSessionDeliveries : 0;
+      if (prevTotal <= 0) {
+        record.averageTimePerOrder = avgTimePerOrderThisSession;
+      } else {
+        record.averageTimePerOrder = (record.averageTimePerOrder * prevTotal + avgTimePerOrderThisSession * totalSessionDeliveries) / record.totalDeliveries;
+      }
+    }
     record.playCount += 1;
     record.lastPlayedAt = Date.now();
 
@@ -322,43 +336,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const dt = deltaTime * state.speedMultiplier;
 
-    if (state.waitingAtLight && state.currentTrafficLight) {
-      if (state.currentTrafficLight.state === 'green') {
-        set({ waitingAtLight: false, currentTrafficLight: null });
-      } else {
-        const updatedLights = state.trafficLights.map(light => {
-          if (light.nodeId !== state.currentTrafficLight?.nodeId) return light;
-          let newTimer = light.timer - dt;
-          let newState = light.state;
-          
-          if (newTimer <= 0) {
-            if (light.state === 'green') {
-              newState = 'yellow';
-              newTimer = light.yellowDuration;
-            } else if (light.state === 'yellow') {
-              newState = 'red';
-              newTimer = light.redDuration;
-            } else {
-              newState = 'green';
-              newTimer = light.greenDuration;
-            }
-          }
-          return { ...light, state: newState, timer: newTimer };
-        });
-        set({ trafficLights: updatedLights });
-        return;
-      }
-    }
-
-    let newRemainingTime = state.remainingTime - dt;
-    let newGameTime = state.gameTime + dt;
-
-    if (newRemainingTime <= 0) {
-      set({ remainingTime: 0 });
-      get().endGame();
-      return;
-    }
-
     const updatedLights = state.trafficLights.map(light => {
       let newTimer = light.timer - dt;
       let newState = light.state;
@@ -377,6 +354,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       return { ...light, state: newState, timer: newTimer };
     });
+
+    if (state.waitingAtLight && state.currentTrafficLight) {
+      const updatedCurrentLight = updatedLights.find(l => l.nodeId === state.currentTrafficLight?.nodeId);
+      if (updatedCurrentLight && updatedCurrentLight.state === 'green') {
+        set({ 
+          waitingAtLight: false, 
+          currentTrafficLight: null, 
+          isAtTrafficLight: false,
+          trafficLights: updatedLights,
+        });
+        get().addMessage({
+          sender: '系统',
+          content: '绿灯了，继续前进！',
+          type: 'system',
+        });
+        return;
+      }
+      set({ trafficLights: updatedLights, currentTrafficLight: updatedCurrentLight || null });
+      return;
+    }
+
+    let newRemainingTime = state.remainingTime - dt;
+    let newGameTime = state.gameTime + dt;
+
+    if (newRemainingTime <= 0) {
+      set({ remainingTime: 0 });
+      get().endGame();
+      return;
+    }
 
     const newRoadEvents = state.roadEvents.filter(event => {
       return (Date.now() - event.createdAt) / 1000 < event.duration;
@@ -403,6 +409,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     let newStamina = state.stamina;
     let newBattery = state.vehicle.battery;
+    let newDurability = state.vehicle.durability;
     let newPosition = { ...state.playerPosition };
     let newCurrentNodeId = state.currentNodeId;
     let newTargetNodeId = state.targetNodeId;
@@ -411,18 +418,49 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let newSessionDistance = state.sessionDistance;
     let newIsAtTrafficLight = false;
     let newCurrentTrafficLight: TrafficLight | null = null;
+    let vehicleBrokeDown = false;
 
     const weatherSpeedMod = getWeatherSpeedModifier(state.weather);
     const speedSkillBonus = 1 + getSkillTotalEffect(state.player.skills.find(s => s.id === 'speed')!) / 100;
     const enduranceMod = 1 - getSkillTotalEffect(state.player.skills.find(s => s.id === 'endurance')!) / 100;
     const ledLightBonus = state.player.equipment.find(e => e.type === 'light' && e.owned) ? 1.1 : 1;
-    const durabilityMod = state.vehicle.durability > 50 ? 1 : state.vehicle.durability > 20 ? 0.85 : 0.6;
-    const batteryEmptyMod = newBattery > 10 ? 1 : newBattery > 0 ? 0.5 : 0.1;
+    const durabilityMod = newDurability > 50 ? 1 : newDurability > 20 ? 0.85 : 0.6;
+    const batteryEmptyMod = newBattery > 10 ? 1 : newBattery > 0 ? 0.5 : 0;
     const staminaMod = newStamina > 30 ? 1 : newStamina > 0 ? 0.6 : 0.3;
 
     let actualSpeed = state.vehicle.speed * weatherSpeedMod * speedSkillBonus * ledLightBonus * durabilityMod * batteryEmptyMod * staminaMod;
 
-    if (newRoute.length > 1 && newTargetNodeId) {
+    if (newDurability < 10 && newRoute.length > 1 && Math.random() < 0.002 * dt) {
+      vehicleBrokeDown = true;
+      newRoute = [];
+      newTargetNodeId = null;
+      newRouteProgress = 0;
+      
+      get().addMessage({
+        sender: '系统',
+        content: '💥 车辆故障！耐久度过低导致抛锚，请尽快到修车铺维修。所有活动订单可能受影响。',
+        type: 'system',
+      });
+
+      const penaltyOrders: Order[] = [];
+      const remainingActive: Order[] = [];
+      for (const order of state.activeOrders) {
+        if (order.status === 'picked' && Math.random() < 0.5) {
+          penaltyOrders.push({ ...order, status: 'failed' as const, hasIssue: true, issueType: 'damaged' as const });
+        } else {
+          remainingActive.push(order);
+        }
+      }
+      
+      if (penaltyOrders.length > 0) {
+        set(s => ({
+          activeOrders: remainingActive,
+          failedOrders: [...s.failedOrders, ...penaltyOrders],
+        }));
+      }
+    }
+
+    if (!vehicleBrokeDown && newBattery > 0 && newRoute.length > 1 && newTargetNodeId) {
       const currentNode = getNode(newCurrentNodeId);
       const nextNodeId = newRoute[1];
       const nextNode = getNode(nextNodeId);
@@ -528,20 +566,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }
 
-    const orderSpawnChance = chapter.orderDensity * 0.002 * dt;
+    const reputation = state.player.reputation;
+    const repBonus = (reputation - 50) / 100;
+    const baseSpawnChance = chapter.orderDensity * 0.002 * dt;
+    const orderSpawnChance = Math.max(0.0001, baseSpawnChance * (0.5 + repBonus));
+    
     let newAvailable = [...updatedAvailable];
     
     if (Math.random() < orderSpawnChance && newAvailable.length < 8) {
-      const newOrder = generateOrder(chapter.difficulty);
+      const newOrder = generateOrder(chapter.difficulty, reputation);
       newAvailable.push(newOrder);
     }
 
-    const newDurability = Math.max(0, state.vehicle.durability - 0.003 * dt * state.speedMultiplier / enduranceMod);
+    if (!vehicleBrokeDown) {
+      newDurability = Math.max(0, newDurability - 0.003 * dt * state.speedMultiplier / enduranceMod);
+    }
 
     if (newDurability < 10 && state.vehicle.durability >= 10) {
       get().addMessage({
         sender: '系统',
-        content: '⚠️ 车辆耐久度过低！请尽快到修车铺维修。',
+        content: '⚠️ 车辆耐久度过低！继续行驶可能抛锚，请尽快到修车铺维修。',
         type: 'system',
       });
     }
@@ -550,6 +594,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       get().addMessage({
         sender: '系统',
         content: '⚡ 电量不足！请尽快充电。',
+        type: 'system',
+      });
+    }
+
+    if (newBattery <= 0 && state.vehicle.battery > 0 && newRoute.length > 1) {
+      newRoute = [];
+      newTargetNodeId = null;
+      newRouteProgress = 0;
+      get().addMessage({
+        sender: '系统',
+        content: '⚡ 电量耗尽！车辆已停止，请先充电或呼叫救援。',
         type: 'system',
       });
     }
@@ -760,6 +815,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const reports = [...state.player.reports, report];
     set(state => ({ player: { ...state.player, reports } }));
+    get().savePlayer();
 
     get().addMessage({
       sender: '客服',
@@ -788,6 +844,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const appeals = [...state.player.appeals, appeal];
     set(state => ({ player: { ...state.player, appeals } }));
+    get().savePlayer();
 
     get().addMessage({
       sender: '客服',
@@ -835,6 +892,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       currentEarnings: state.currentEarnings + compensation,
     }));
+    get().savePlayer();
 
     get().addMessage({
       sender: '客服',
@@ -881,6 +939,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       currentEarnings: state.currentEarnings + penaltyRefunded,
     }));
+    get().savePlayer();
 
     get().addMessage({
       sender: '客服',
@@ -955,6 +1014,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         content: '⚡ 电量耗尽！请先充电或呼叫救援。',
         type: 'system',
       });
+      return;
+    }
+    if (state.isAtTrafficLight) {
       return;
     }
     const path = findShortestPath(state.currentNodeId, nodeId);
@@ -1115,7 +1177,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     get().addMessage({
       sender: '修车铺',
-      content: `🔧 维修完成：+${Math.round(repairAmount)}%耐久，花费¥${cost}`,
+      content: `🔧 维修完成：+${Math.round(repairAmount)}%耐久，花费¥${cost}，故障风险已解除。`,
       type: 'customer',
     });
   },
@@ -1164,6 +1226,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         },
       };
     });
+    get().savePlayer();
   },
 
   loadPlayer: () => {
@@ -1171,7 +1234,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const saved = localStorage.getItem('delivery_rider_player_v2');
       if (saved) {
         const data = JSON.parse(saved);
-        set({ player: { ...initialPlayerState, ...data } });
+        const mergedSkills = INITIAL_SKILLS.map(s => {
+          const saved = data.skills?.find((ds: any) => ds.id === s.id);
+          return saved ? { ...s, ...saved } : s;
+        });
+        const mergedEquipment = INITIAL_EQUIPMENT.map(e => {
+          const saved = data.equipment?.find((de: any) => de.id === e.id);
+          return saved ? { ...e, owned: saved.owned } : e;
+        });
+        set({ 
+          player: { 
+            ...initialPlayerState, 
+            ...data, 
+            skills: mergedSkills,
+            equipment: mergedEquipment,
+          } 
+        });
       }
     } catch (e) {
       console.error('Failed to load player data:', e);
