@@ -37,9 +37,9 @@ const StatusBar = () => {
       ? 'bg-yellow-500' 
       : 'bg-red-500';
 
-  const batteryColor = vehicle.battery > 60 
+  const batteryColor = (vehicle.battery / vehicle.maxBattery) > 0.6 
     ? 'bg-green-500' 
-    : vehicle.battery > 30 
+    : (vehicle.battery / vehicle.maxBattery) > 0.3 
       ? 'bg-yellow-500' 
       : 'bg-red-500';
 
@@ -77,7 +77,7 @@ const StatusBar = () => {
           <div className="flex-1 h-2 bg-night-700 rounded-full overflow-hidden">
             <div
               className={`h-full ${batteryColor} rounded-full transition-all`}
-              style={{ width: `${vehicle.battery}%` }}
+              style={{ width: `${Math.min(100, (vehicle.battery / vehicle.maxBattery) * 100)}%` }}
             />
           </div>
           <span className="text-xs text-gray-400 w-8">{Math.round(vehicle.battery)}</span>

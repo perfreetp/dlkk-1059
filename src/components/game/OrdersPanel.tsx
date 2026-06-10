@@ -15,6 +15,8 @@ const OrderCard = ({ order, isActive, onClick }: { order: Order; isActive: boole
     <div
       onClick={onClick}
       className={`p-3 rounded-lg border cursor-pointer transition-all ${getOrderTypeBgColor(order.type)} ${getOrderQualityBorder(order.quality)} ${
+        order.isEmergency ? 'border-red-500/70 shadow-[0_0_12px_rgba(239,68,68,0.25)]' : ''
+      } ${
         isActive ? 'ring-2 ring-neon-blue scale-[1.02]' : 'hover:scale-[1.01]'
       }`}
     >
@@ -23,15 +25,21 @@ const OrderCard = ({ order, isActive, onClick }: { order: Order; isActive: boole
           <span className={`text-xs font-bold px-2 py-0.5 rounded ${getOrderTypeColor(order.type)} bg-night-800/50`}>
             {getOrderTypeLabel(order.type)}
           </span>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded ${getOrderQualityColor(order.quality)}`}>
-            {getOrderQualityLabel(order.quality)}
-          </span>
+          {order.isEmergency ? (
+            <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-500/30 text-red-400 border border-red-500/50">
+              🆘 应急任务
+            </span>
+          ) : (
+            <span className={`text-xs font-bold px-2 py-0.5 rounded ${getOrderQualityColor(order.quality)}`}>
+              {getOrderQualityLabel(order.quality)}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 text-neon-yellow font-bold">
           <DollarSign className="w-4 h-4" />
           <span>{order.reward}</span>
-          {order.quality === 'premium' && <span className="text-yellow-400 text-xs ml-1">↑</span>}
-          {order.quality === 'poor' && <span className="text-red-400 text-xs ml-1">↓</span>}
+          {order.quality === 'premium' && !order.isEmergency && <span className="text-yellow-400 text-xs ml-1">↑</span>}
+          {order.quality === 'poor' && !order.isEmergency && <span className="text-red-400 text-xs ml-1">↓</span>}
         </div>
       </div>
 

@@ -25,9 +25,9 @@ const VehiclePanel = () => {
     acceptEmergencyMission,
     buyInsurance,
     buyMaintenance,
-    player,
     sessionRescueCost,
     sessionRepairCost,
+    hasPendingEmergencyOrder,
   } = useGameStore();
   
   const repairRecords = player.repairRecords;
@@ -197,47 +197,49 @@ const VehiclePanel = () => {
                   <Truck className="w-4 h-4" />
                   呼叫救援拖车
                 </button>
-                {rescueCost > 0 && (
-                  <p className="text-xs text-center text-gray-400">
-                    预计费用: ¥{rescueCost} | 预计耗时: {rescueTimeCost}秒
-                  </p>
-                )}
-                {rescueCost === 0 && rescueTimeCost > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-yellow-400 text-center">
-                      ⚠️ 余额不足！可选择应急救援方案
-                    </p>
-                    <button
-                      onClick={acceptEmergencyMission}
-                      className="w-full py-2 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-500/30 transition-all flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Ambulance className="w-4 h-4" />
-                      接受应急任务（低收益抵扣费用）
-                    </button>
-                    <p className="text-xs text-gray-500 text-center">
-                      需完成1单低收益订单抵扣救援费
-                    </p>
-                  </div>
-                )}
+                <p className="text-xs text-center text-gray-500">
+                  点击呼叫，费用从收益中扣除；余额不足自动转为应急救援
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-orange-400 flex items-center gap-1">
                     <Truck className="w-4 h-4 animate-pulse" />
-                    救援车正在赶来...
+                    {rescueCost > 0 ? '救援车正在赶来...' : '应急救援中...'}
                   </span>
-                  <span className="text-gray-400">{Math.round(rescueProgress * 100)}%</span>
+                  <span className="text-gray-400">{Math.round((rescueProgress / (rescueTimeCost || 1)) * 100)}%</span>
                 </div>
                 <div className="h-2 bg-night-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-orange-500 rounded-full transition-all duration-300"
-                    style={{ width: `${rescueProgress * 100}%` }}
+                    style={{ width: `${(rescueProgress / (rescueTimeCost || 1)) * 100}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-500 text-center">
-                  目标充电站 | 费用: ¥{rescueCost} | 已耗时: {Math.round(rescueTimeCost * rescueProgress)}秒
-                </p>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>已用 {Math.round(rescueProgress)}s</span>
+                  <span>预计 {rescueTimeCost}s</span>
+                  <span>费用 ¥{rescueCost}</span>
+                </div>
+                {rescueCost === 0 && (
+                  <div className="mt-2 p-2 rounded bg-yellow-500/10 border border-yellow-500/30">
+                    <p className="text-xs text-yellow-400 mb-2">
+                      ⚠️ 应急救援：到达后需完成1单低收益任务抵扣救援费
+                    </p>
+                    {!hasPendingEmergencyOrder ? (
+                      <button
+                        onClick={acceptEmergencyMission}
+                        className="w-full py-1.5 text-sm rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-500/30 transition-all"
+                      >
+                        🆘 现在接应急任务
+                      </button>
+                    ) : (
+                      <p className="text-xs text-green-400 text-center">
+                        ✓ 已接取应急任务，请尽快完成
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -252,11 +254,11 @@ const VehiclePanel = () => {
             <div className="h-2 bg-night-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-orange-500 rounded-full transition-all duration-300"
-                style={{ width: `${rescueProgress * 100}%` }}
+                style={{ width: `${(rescueProgress / (rescueTimeCost || 1)) * 100}%` }}
               />
             </div>
             <p className="text-xs text-gray-500 text-center">
-              {Math.round(rescueProgress * 100)}% 完成 | 费用: ¥{rescueCost}
+              {Math.round((rescueProgress / (rescueTimeCost || 1)) * 100)}% 完成 | 费用: ¥{rescueCost}
             </p>
           </div>
         )}

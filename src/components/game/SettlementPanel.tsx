@@ -1,6 +1,6 @@
 import { useGameStore } from '../../store/gameStore';
 import { getChapter } from '../../data/chapters';
-import { Trophy, DollarSign, Package, Clock, Star, TrendingUp, XCircle, CheckCircle } from 'lucide-react';
+import { Trophy, DollarSign, Package, Clock, Star, TrendingUp, XCircle, CheckCircle, Wrench, Truck, ShoppingBag } from 'lucide-react';
 
 const SettlementPanel = () => {
   const {
@@ -13,13 +13,17 @@ const SettlementPanel = () => {
     gameTime,
     isSettled,
     resetGame,
+    sessionRescueCost,
+    sessionRepairCost,
   } = useGameStore();
 
   const chapter = currentChapterId ? getChapter(currentChapterId) : null;
-  const totalEarnings = currentEarnings + tips;
+  const totalIncome = currentEarnings + tips;
+  const totalExpense = sessionRescueCost + sessionRepairCost;
+  const netEarnings = totalIncome - totalExpense;
   const totalOrders = deliveredOrders.length + failedOrders.length;
   const successRate = totalOrders > 0 ? Math.round((deliveredOrders.length / totalOrders) * 100) : 0;
-  const isWin = chapter ? totalEarnings >= chapter.targetEarnings : false;
+  const isWin = chapter ? netEarnings >= chapter.targetEarnings : false;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(Math.abs(seconds) / 60);
@@ -56,11 +60,11 @@ const SettlementPanel = () => {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="glass-panel p-3 text-center">
-            <DollarSign className="w-6 h-6 mx-auto mb-1 text-neon-yellow" />
-            <div className="text-2xl font-bold text-neon-yellow">
-              ¥{totalEarnings}
+            <DollarSign className="w-6 h-6 mx-auto mb-1 text-neon-green" />
+            <div className="text-2xl font-bold text-neon-green">
+              ¥{netEarnings}
             </div>
-            <div className="text-xs text-gray-500">总收益</div>
+            <div className="text-xs text-gray-500">净收益</div>
           </div>
           <div className="glass-panel p-3 text-center">
             <Package className="w-6 h-6 mx-auto mb-1 text-neon-green" />
@@ -74,16 +78,20 @@ const SettlementPanel = () => {
         <div className="glass-panel p-4 space-y-3">
           <h4 className="font-medium text-gray-300 flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
-            详细统计
+            收入明细
           </h4>
           
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">配送费</span>
-              <span className="text-gray-300">¥{currentEarnings}</span>
+              <span className="text-gray-500 flex items-center gap-1">
+                <ShoppingBag className="w-3 h-3" /> 配送费
+              </span>
+              <span className="text-neon-yellow">+¥{currentEarnings}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">小费</span>
+              <span className="text-gray-500 flex items-center gap-1">
+                <Star className="w-3 h-3" /> 小费
+              </span>
               <span className="text-neon-green">+¥{tips}</span>
             </div>
             <div className="flex justify-between">
@@ -91,6 +99,75 @@ const SettlementPanel = () => {
               <span className="text-gray-300">¥{avgTip}</span>
             </div>
             <div className="border-t border-night-600/50 my-2"></div>
+            <div className="flex justify-between font-medium">
+              <span className="text-gray-400">总收入</span>
+              <span className="text-neon-yellow">¥{totalIncome}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="glass-panel p-4 space-y-3">
+          <h4 className="font-medium text-gray-300 flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-orange-400" />
+            费用支出
+          </h4>
+          
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500 flex items-center gap-1">
+                <Truck className="w-3 h-3" /> 救援费用
+              </span>
+              <span className={sessionRescueCost > 0 ? 'text-red-400' : 'text-gray-500'}>
+                {sessionRescueCost > 0 ? `-¥${sessionRescueCost}` : '¥0'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500 flex items-center gap-1">
+                <Wrench className="w-3 h-3" /> 维修保养
+              </span>
+              <span className={sessionRepairCost > 0 ? 'text-red-400' : 'text-gray-500'}>
+                {sessionRepairCost > 0 ? `-¥${sessionRepairCost}` : '¥0'}
+              </span>
+            </div>
+            <div className="border-t border-night-600/50 my-2"></div>
+            <div className="flex justify-between font-medium">
+              <span className="text-gray-400">总支出</span>
+              <span className={totalExpense > 0 ? 'text-red-400' : 'text-gray-500'}>
+                {totalExpense > 0 ? `-¥${totalExpense}` : '¥0'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="glass-panel p-4 space-y-3 border-2 border-neon-blue/30">
+          <div className="flex justify-between items-center">
+            <h4 className="font-medium text-neon-blue flex items-center gap-2">
+              <DollarSign className="w-4 h-4" />
+              最终净收益
+            </h4>
+            <span className={`text-2xl font-bold ${netEarnings >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
+              ¥{netEarnings}
+            </span>
+          </div>
+          {chapter && (
+            <div className="text-xs text-gray-400">
+              目标收益: ¥{chapter.targetEarnings}
+              {isWin ? (
+                <span className="text-neon-green ml-2">✓ 已达标</span>
+              ) : (
+                <span className="text-red-400 ml-2">✗ 差 ¥{chapter.targetEarnings - netEarnings}</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="glass-panel p-4 space-y-3">
+          <h4 className="font-medium text-gray-300 flex items-center gap-2">
+            <Package className="w-4 h-4" />
+            订单统计
+          </h4>
+          
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">成功订单</span>
               <span className="text-neon-green">{deliveredOrders.length} 单</span>
@@ -128,7 +205,7 @@ const SettlementPanel = () => {
             {chapter && (
               <div className="flex justify-between">
                 <span className="text-gray-500">目标收益</span>
-                <span className={totalEarnings >= chapter.targetEarnings ? 'text-neon-green' : 'text-yellow-400'}>
+                <span className={netEarnings >= chapter.targetEarnings ? 'text-neon-green' : 'text-yellow-400'}>
                   ¥{chapter.targetEarnings}
                 </span>
               </div>
@@ -140,9 +217,9 @@ const SettlementPanel = () => {
               <div className="h-2 bg-night-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    totalEarnings >= chapter.targetEarnings ? 'bg-neon-green' : 'bg-neon-blue'
+                    netEarnings >= chapter.targetEarnings ? 'bg-neon-green' : 'bg-neon-blue'
                   }`}
-                  style={{ width: `${Math.min(100, (totalEarnings / chapter.targetEarnings) * 100)}%` }}
+                  style={{ width: `${Math.min(100, Math.max(0, (netEarnings / chapter.targetEarnings) * 100))}%` }}
                 />
               </div>
               <div className="flex justify-between text-xs text-gray-500 mt-1">

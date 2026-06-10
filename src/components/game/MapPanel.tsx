@@ -23,6 +23,7 @@ const MapPanel = () => {
     isBeingRescued,
     rescueProgress,
     rescueTargetNodeId,
+    rescueTimeCost,
   } = useGameStore();
 
   const getWeatherIcon = () => {
@@ -227,17 +228,17 @@ const MapPanel = () => {
             <Truck className="w-4 h-4 text-orange-400 animate-pulse" />
             <span className="text-sm text-orange-400">救援中</span>
             <span className="text-xs text-gray-400 ml-auto">
-              {Math.round(rescueProgress * 100)}%
+              {Math.round((rescueProgress / (rescueTimeCost || 1)) * 100)}%
             </span>
           </div>
           <div className="h-1.5 bg-night-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-orange-500 rounded-full transition-all duration-300"
-              style={{ width: `${rescueProgress * 100}%` }}
+              style={{ width: `${(rescueProgress / (rescueTimeCost || 1)) * 100}%` }}
             />
           </div>
           <p className="text-xs text-gray-500 mt-1">
-            正在拖往充电站...
+            正在拖往充电站... 已用 {Math.round(rescueProgress)}s / 预计 {rescueTimeCost}s
           </p>
         </div>
       )}

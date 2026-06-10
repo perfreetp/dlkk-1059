@@ -80,6 +80,7 @@ export interface Order {
   issueType?: 'late' | 'cold' | 'note_ignored' | 'damaged';
   report?: OrderReport;
   appeal?: OrderAppeal;
+  isEmergency?: boolean;
 }
 
 export interface OrderReport {
@@ -145,6 +146,7 @@ export interface RescueRecord {
   toNodeId: string;
   cost: number;
   timeCost: number;
+  description: string;
   createdAt: number;
 }
 
@@ -303,6 +305,8 @@ export interface GameState {
   rescueTargetNodeId: string | null;
   rescueCost: number;
   rescueTimeCost: number;
+  emergencyRescueCost: number;
+  hasPendingEmergencyOrder: boolean;
 }
 
 export interface GameStats {

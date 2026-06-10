@@ -115,6 +115,8 @@ const initialGameState: GameState = {
   rescueTargetNodeId: null,
   rescueCost: 0,
   rescueTimeCost: 0,
+  emergencyRescueCost: 0,
+  hasPendingEmergencyOrder: false,
 };
 
 const createInitialTrafficLights = (): TrafficLight[] => {
@@ -446,6 +448,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             toNodeId: targetNode.id,
             cost: state.rescueCost,
             timeCost: state.rescueTimeCost,
+            description: `救援至${targetNode.name}`,
             createdAt: Date.now(),
           };
           
@@ -943,6 +946,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newReputation = Math.max(0, newReputation - 2);
     }
     
+    const isEmergencyOrder = order.isEmergency;
+    
+    let newSessionRescueCost = state.sessionRescueCost;
+    let newEmergencyRescueCost = state.emergencyRescueCost;
+    let newHasPendingEmergency = state.hasPendingEmergencyOrder;
+    
+    if (isEmergencyOrder && state.emergencyRescueCost > 0) {
+      newSessionRescueCost = state.sessionRescueCost + state.emergencyRescueCost;
+      newEmergencyRescueCost = 0;
+      newHasPendingEmergency = false;
+    }
+    
     set(state => ({
       activeOrders: state.activeOrders.filter(o => o.id !== orderId),
       deliveredOrders: [...state.deliveredOrders, deliveredOrder],
@@ -950,11 +965,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       tips: state.tips + tip,
       player: { ...state.player, reputation: newReputation },
       sessionDeliveries: state.sessionDeliveries + 1,
+      sessionRescueCost: newSessionRescueCost,
+      emergencyRescueCost: newEmergencyRescueCost,
+      hasPendingEmergencyOrder: newHasPendingEmergency,
     }));
     
     let message = `谢谢！${rating}星好评！${tip > 0 ? ` 小费¥${tip}` : ''}`;
     if (hasIssue) {
       message += ' 顾客有些不满，可在消息中提交异常报备。';
+    }
+    if (isEmergencyOrder) {
+      message = `✅ 应急任务完成！已抵扣¥${state.emergencyRescueCost}救援费。` + message;
     }
     
     get().addMessage({
@@ -1030,13 +1051,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
         rescueTargetNodeId: nearest.id,
         rescueCost: 0,
         rescueTimeCost: timeCost + 30,
+        emergencyRescueCost: baseCost,
+        hasPendingEmergencyOrder: false,
         currentRoute: [],
         targetNodeId: null,
       });
       
       get().addMessage({
         sender: '救援中心',
-        content: `余额不足！已启动应急救援，送至${nearest.name}后需完成1单低收益应急任务抵扣费用，预计${timeCost + 30}秒到达。`,
+        content: `余额不足！已启动应急救援，送至${nearest.name}后需完成1单低收益应急任务抵扣¥${baseCost}救援费，预计${timeCost + 30}秒到达。`,
         type: 'system',
       });
     }
@@ -1044,17 +1067,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   acceptEmergencyMission: () => {
     const state = get();
+    if (state.hasPendingEmergencyOrder) return;
+    
     const emergencyOrder = generateOrder(1, 0);
     emergencyOrder.reward = Math.max(5, Math.floor(emergencyOrder.reward * 0.3));
     emergencyOrder.timeLimit = Math.floor(emergencyOrder.timeLimit * 1.5);
+    emergencyOrder.quality = 'poor';
+    emergencyOrder.isEmergency = true;
     
     set(s => ({
       availableOrders: [emergencyOrder, ...s.availableOrders],
+      hasPendingEmergencyOrder: true,
     }));
     
     get().addMessage({
       sender: '系统',
-      content: `应急任务已派发！完成后救援费用自动抵扣。该订单奖励较低，请尽快完成。`,
+      content: `🆘 应急任务已派发！完成后自动抵扣¥${state.emergencyRescueCost}救援费。该订单奖励较低，请尽快完成。`,
       type: 'system',
     });
   },
